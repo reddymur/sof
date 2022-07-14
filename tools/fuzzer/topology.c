@@ -145,7 +145,7 @@ static int fuzzer_load_buffer(struct tplg_context *ctx)
 	struct sof_ipc_comp_reply r;
 	int ret;
 
-	ret = tplg_create_buffer(ctx, &buffer);
+	ret = tplg_parse_ipc3_buffer(ctx, &buffer);
 	if (ret < 0)
 		return ret;
 
@@ -232,7 +232,7 @@ static int fuzzer_load_pga(struct tplg_context *ctx)
 	struct sof_ipc_comp_reply r;
 	int ret = 0;
 
-	ret = tplg_create_pga(ctx, &volume);
+	ret = tplg_parse_ipc3_pga(ctx, &volume);
 	if (ret < 0)
 		return ret;
 
@@ -285,7 +285,7 @@ static int fuzzer_load_src(struct tplg_context *ctx)
 	struct sof_ipc_comp_reply r;
 	int ret = 0;
 
-	ret = tplg_create_src(ctx, &src);
+	ret = tplg_parse_ipc3_src(ctx, &src);
 	if (ret < 0)
 		return ret;
 
@@ -311,7 +311,7 @@ static int fuzzer_load_asrc(struct tplg_context *ctx)
 	struct sof_ipc_comp_reply r;
 	int ret = 0;
 
-	ret = tplg_create_asrc(ctx, &asrc);
+	ret = tplg_parse_ipc3_asrc(ctx, &asrc);
 	if (ret < 0)
 		return ret;
 
@@ -337,7 +337,7 @@ static int fuzzer_load_mixer(struct tplg_context *ctx)
 	struct sof_ipc_comp_reply r;
 	int ret = 0;
 
-	ret = tplg_create_mixer(ctx, &mixer);
+	ret = tplg_parse_ipc3_mixer(ctx, &mixer);
 	if (ret < 0)
 		return ret;
 

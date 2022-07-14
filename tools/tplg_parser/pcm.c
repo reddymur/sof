@@ -21,6 +21,12 @@
 #include <tplg_parser/topology.h>
 #include <sof/lib/uuid.h>
 #include <sof/ipc/topology.h>
+#include <tplg_parser/tokens.h>
+
+/* temporary until upstream fix propagates downstream */
+#define SNDRV_CTL_ELEM_ID_NAME_MAXLEN 44
+
+#include <alsa/sound/uapi/asoc.h>
 
 /* PCM */
 static const struct sof_topology_token pcm_tokens[] = {

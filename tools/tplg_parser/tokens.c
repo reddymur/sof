@@ -22,6 +22,11 @@
 #include <sof/ipc/topology.h>
 #include <tplg_parser/topology.h>
 
+/* temporary until upstream fix propagates downstream */
+#define SNDRV_CTL_ELEM_ID_NAME_MAXLEN 44
+
+#include <alsa/sound/uapi/asoc.h>
+
 static const struct frame_types sof_frames[] = {
 	/* TODO: fix topology to use ALSA formats */
 	{"s16le", SOF_IPC_FRAME_S16_LE},

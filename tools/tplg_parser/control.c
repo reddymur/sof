@@ -22,6 +22,11 @@
 #include <sof/ipc/topology.h>
 #include <tplg_parser/topology.h>
 
+/* temporary until upstream fix propagates downstream */
+#define SNDRV_CTL_ELEM_ID_NAME_MAXLEN 44
+
+#include <alsa/sound/uapi/asoc.h>
+
 int tplg_create_single_control(struct snd_soc_tplg_ctl_hdr **ctl, char **priv_data,
 			  FILE *file)
 {
@@ -188,7 +193,7 @@ err:
  * we don't use controls in the fuzzer atm.
  * so just skip to the next dapm widget
  */
-int tplg_create_controls(int num_kcontrols, FILE *file)
+int tplg_create_controls(int num_kcontrols, FILE *file, struct snd_soc_tplg_ctl_hdr *rctl)
 {
 	struct snd_soc_tplg_ctl_hdr *ctl_hdr;
 	struct snd_soc_tplg_mixer_control *mixer_ctl;
@@ -324,6 +329,8 @@ int tplg_create_controls(int num_kcontrols, FILE *file)
 		}
 	}
 
+	if (rctl)
+		*rctl = *ctl_hdr;
 err:
 	/* free all data */
 	free(mixer_ctl);

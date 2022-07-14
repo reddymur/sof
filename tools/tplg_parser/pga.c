@@ -21,6 +21,12 @@
 #include <sof/lib/uuid.h>
 #include <sof/ipc/topology.h>
 #include <tplg_parser/topology.h>
+#include <tplg_parser/tokens.h>
+
+/* temporary until upstream fix propagates downstream */
+#define SNDRV_CTL_ELEM_ID_NAME_MAXLEN 44
+
+#include <alsa/sound/uapi/asoc.h>
 
 /* volume */
 static const struct sof_topology_token volume_tokens[] = {
@@ -33,7 +39,7 @@ static const struct sof_topology_token volume_tokens[] = {
 };
 
 /* load pda dapm widget */
-int tplg_create_pga(struct tplg_context *ctx, struct sof_ipc_comp_volume *volume)
+int tplg_parse_ipc3_pga(struct tplg_context *ctx, struct sof_ipc_comp_volume *volume)
 {
 	struct snd_soc_tplg_vendor_array *array = NULL;
 	size_t total_array_size = 0, read_size;
@@ -122,11 +128,9 @@ int tplg_create_pga(struct tplg_context *ctx, struct sof_ipc_comp_volume *volume
 }
 
 /* load pda dapm widget */
-int tplg_register_pga(struct tplg_context *ctx)
+int tplg_new_pga(struct tplg_context *ctx, struct sof_ipc_comp_volume *volume,
+		struct snd_soc_tplg_ctl_hdr *rctl)
 {
-	struct sof *sof = ctx->sof;
-	struct sof_ipc_comp *comp;
-	struct sof_ipc_comp_volume *volume;
 	struct snd_soc_tplg_ctl_hdr *ctl = NULL;
 	struct snd_soc_tplg_mixer_control *mixer_ctl;
 	char *priv_data = NULL;
@@ -138,15 +142,7 @@ int tplg_register_pga(struct tplg_context *ctx)
 	int channels = 0;
 	int ret = 0;
 
-	volume = malloc(sizeof(*volume) + UUID_SIZE);
-	if (!volume)
-		return -ENOMEM;
-
-	memset(volume, 0, sizeof(*volume) + UUID_SIZE);
-
-	comp = &volume->comp;
-
-	ret = tplg_create_pga(ctx, volume);
+	ret = tplg_parse_ipc3_pga(ctx, volume);
 	if (ret < 0)
 		goto err;
 
@@ -171,6 +167,7 @@ int tplg_register_pga(struct tplg_context *ctx)
 		vol_step = mixer_ctl->hdr.tlv.scale.step;
 		vol_maxs = mixer_ctl->max;
 		channels = mixer_ctl->num_channels;
+		*rctl = *ctl;
 	}
 
 	vol_min_db = 0.01 * vol_min;
@@ -182,15 +179,6 @@ int tplg_register_pga(struct tplg_context *ctx)
 	free(ctl);
 	free(priv_data);
 
-	/* load volume component */
-	register_comp(comp->type, NULL);
-	if (ipc_comp_new(sof->ipc, ipc_to_comp_new(comp)) < 0) {
-		fprintf(stderr, "error: new pga comp\n");
-		ret = -EINVAL;
-		goto err;
-	}
-
 err:
-	free(volume);
 	return ret;
 }
