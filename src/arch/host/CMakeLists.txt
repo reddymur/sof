@@ -5,7 +5,7 @@ target_include_directories(sof_public_headers INTERFACE ${PROJECT_SOURCE_DIR}/sr
 target_include_directories(sof_public_headers INTERFACE ${PROJECT_SOURCE_DIR}/src/platform/library/include)
 
 # C & ASM flags
-target_compile_options(sof_options INTERFACE -g -O3 -Wall -Werror -Wmissing-prototypes
+target_compile_options(sof_options INTERFACE -g -O3 -fPIC -DPIC -Wall -Werror -Wmissing-prototypes
   -Wimplicit-fallthrough -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -Wpointer-arith -DCONFIG_LIBRARY "-imacros${CONFIG_H_PATH}")
 
 if(NOT BUILD_UNIT_TESTS_HOST)
