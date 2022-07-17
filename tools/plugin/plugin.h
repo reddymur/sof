@@ -57,17 +57,13 @@
 
 struct tplg_context;
 
-typedef struct snd_sof {
-	int thread_fd, main_fd;
-} snd_sof_t;
-
 struct plug_context {
 	snd_pcm_sframes_t frames;	/* number of frames copied */
 	snd_pcm_sframes_t position;	/* current position in buffer */
 	snd_pcm_uframes_t  buffer_frames;		/* buffer size */
 };
 
-typedef struct snd_pcm_sof {
+typedef struct snd_sof_plug {
 	snd_pcm_ioplug_t io;
 
 	/* audio data */
@@ -104,8 +100,6 @@ typedef struct snd_pcm_sof {
 	sem_t *done_lock;
 	char *done_lock_name;
 
-	snd_sof_t *ctx;
-
 	/* conf data */
 	char *device;
 
@@ -114,9 +108,6 @@ typedef struct snd_pcm_sof {
 	size_t frame_size;
 	snd_pcm_sframes_t position;
 
-	int capture;
-	int copies;
-
 	struct tplg_context tplg;
 
 	const char *tplg_file;
@@ -124,39 +115,41 @@ typedef struct snd_pcm_sof {
 	long tplg_pcm;
 	long alsa_card;
 	long alsa_pcm;
-} snd_pcm_sof_t;
+
+	void *module_prv;	/* module private data */
+} snd_sof_plug_t;
 
 
 int sofplug_load_hook(snd_config_t *root, snd_config_t *config,
 		      snd_config_t **dst, snd_config_t *private_data);
 
-int plug_parse_topology(snd_pcm_sof_t *pcm);
+int plug_parse_topology(snd_sof_plug_t *pcm);
 
-int plug_ipc_cmd(snd_pcm_sof_t *pcm, void *msg, size_t len, void *reply, size_t rlen);
+int plug_ipc_cmd(snd_sof_plug_t *pcm, void *msg, size_t len, void *reply, size_t rlen);
 
-int plug_load_widget(snd_pcm_sof_t *pcm);
+int plug_load_widget(snd_sof_plug_t *pcm);
 
-int plug_register_graph(snd_pcm_sof_t *pcm, struct comp_info *temp_comp_list,
+int plug_register_graph(snd_sof_plug_t *pcm, struct comp_info *temp_comp_list,
 			char *pipeline_string, FILE *file,
 			int count, int num_comps, int pipeline_id);
 
-int plug_parent_complete_init(snd_pcm_sof_t *pcm, snd_pcm_t **pcmp,
+int plug_parent_complete_init(snd_sof_plug_t *pcm, snd_pcm_t **pcmp,
 		  	  	     const char *name, snd_pcm_stream_t stream, int mode);
 
-void plug_child_complete_init(snd_pcm_sof_t *pcm);
+void plug_child_complete_init(snd_sof_plug_t *pcm, int capture);
 
-int plug_create_mmap_regions(snd_pcm_sof_t *pcm);
+int plug_create_mmap_regions(snd_sof_plug_t *pcm);
 
-int plug_create_ipc_queue(snd_pcm_sof_t *pcm);
+int plug_create_ipc_queue(snd_sof_plug_t *pcm);
 
-int plug_create_locks(snd_pcm_sof_t *pcm);
+int plug_create_locks(snd_sof_plug_t *pcm);
 
-void plug_add_pipe_arg(snd_pcm_sof_t *pcm, const char *option, const char *arg);
+void plug_add_pipe_arg(snd_sof_plug_t *pcm, const char *option, const char *arg);
 
-int plug_ipc_cmd(snd_pcm_sof_t *pcm, void *msg, size_t len, void *reply, size_t rlen);
+int plug_ipc_cmd(snd_sof_plug_t *pcm, void *msg, size_t len, void *reply, size_t rlen);
 
-int plug_check_sofpipe_status(snd_pcm_sof_t *pcm);
+int plug_check_sofpipe_status(snd_sof_plug_t *pcm);
 
-int plug_init_signals(snd_pcm_sof_t *pcm);
+int plug_init_signals(snd_sof_plug_t *pcm);
 
 void timespec_add_ms(struct timespec *ts, unsigned long ms);

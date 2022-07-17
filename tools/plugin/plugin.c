@@ -85,7 +85,7 @@ static void signal_handler(int sig)
 	}
 }
 
-int plug_init_signals(snd_pcm_sof_t *pcm)
+int plug_init_signals(snd_sof_plug_t *pcm)
 {
 	struct sigaction *action = &pcm->action;
 	int err;
@@ -106,7 +106,7 @@ int plug_init_signals(snd_pcm_sof_t *pcm)
 }
 
 
-int plug_check_sofpipe_status(snd_pcm_sof_t *pcm)
+int plug_check_sofpipe_status(snd_sof_plug_t *pcm)
 {
 	pid_t w;
 	int wstatus;
@@ -137,7 +137,7 @@ int plug_check_sofpipe_status(snd_pcm_sof_t *pcm)
 	return -EPIPE;
 }
 
-int plug_ipc_cmd(snd_pcm_sof_t *pcm, void *msg, size_t len, void *reply, size_t rlen)
+int plug_ipc_cmd(snd_sof_plug_t *pcm, void *msg, size_t len, void *reply, size_t rlen)
 {
 	struct timespec ts;
 	ssize_t ipc_size;
@@ -194,7 +194,7 @@ int plug_ipc_cmd(snd_pcm_sof_t *pcm, void *msg, size_t len, void *reply, size_t 
 	return 0;
 }
 
-void plug_add_pipe_arg(snd_pcm_sof_t *pcm, const char *option, const char *arg)
+void plug_add_pipe_arg(snd_sof_plug_t *pcm, const char *option, const char *arg)
 {
 	char next_arg[128];
 
@@ -212,7 +212,7 @@ void plug_add_pipe_arg(snd_pcm_sof_t *pcm, const char *option, const char *arg)
 /*
  * Pipe is used to transfer audio data in R/W mode (not mmap)
  */
-int plug_create_locks(snd_pcm_sof_t *pcm)
+int plug_create_locks(snd_sof_plug_t *pcm)
 {
 	pcm->ready_lock_name = "/sofplugready";
 	pcm->done_lock_name = "/sofplugdone";
@@ -253,7 +253,7 @@ int plug_create_locks(snd_pcm_sof_t *pcm)
  * IPC uses message queues for Tx/Rx mailbox and doorbell.
  * TODO: do we need non blocking MQ mode ?
  */
-int plug_create_ipc_queue(snd_pcm_sof_t *pcm)
+int plug_create_ipc_queue(snd_sof_plug_t *pcm)
 {
 	int err;
 
@@ -285,7 +285,7 @@ int plug_create_ipc_queue(snd_pcm_sof_t *pcm)
  * IPC uses message queues for Tx/Rx mailbox and doorbell.
  * TODO: set shm name
  */
-int plug_create_mmap_regions(snd_pcm_sof_t *pcm)
+int plug_create_mmap_regions(snd_sof_plug_t *pcm)
 {
 	void *addr;
 	int err;
@@ -379,13 +379,13 @@ int plug_create_mmap_regions(snd_pcm_sof_t *pcm)
 }
 
 /* complete any init for the child - does not return */
-void plug_child_complete_init(snd_pcm_sof_t *pcm)
+void plug_child_complete_init(snd_sof_plug_t *pcm, int capture)
 {
 	char pipe_str[16];
 	int err;
 	int i;
 
-	if (pcm->capture)
+	if (capture)
 		plug_add_pipe_arg(pcm, "c", NULL);
 
 	child_running = 1;

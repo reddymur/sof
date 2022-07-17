@@ -49,31 +49,29 @@
 
 #include "plugin.h"
 
-typedef struct snd_ctl_sof {
-	snd_ctl_ext_t ext;
+#define MAX_CTLS	256
 
-	snd_sof_t *p;
+typedef struct snd_sof_ctl {
+	snd_ctl_ext_t ctl[MAX_CTLS];
+	int ctl_count;
 
-	int subscribed;
-	int updated;
-} snd_ctl_sof_t;
+} snd_sof_ctl_t;
 
-static int sof_update_volume(snd_ctl_sof_t * ctl)
+static int sof_update_volume(snd_sof_ctl_t *ctl)
 {
 	int err;
 
 	printf("%s %d\n", __func__, __LINE__);
-	assert(ctl);
 
 	return 0;
 }
 
-static int plug_ctl_elem_count(snd_ctl_ext_t * ext)
+static int plug_ctl_elem_count(snd_ctl_ext_t *ext)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	int count = 0, err;
 	printf("%s %d\n", __func__, __LINE__);
-	assert(ctl);
+
 
 	return count;
 }
@@ -81,7 +79,7 @@ static int plug_ctl_elem_count(snd_ctl_ext_t * ext)
 static int plug_ctl_elem_list(snd_ctl_ext_t * ext, unsigned int offset,
 			   snd_ctl_elem_id_t * id)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	int err;
 	printf("%s %d\n", __func__, __LINE__);
 	assert(ctl);
@@ -120,21 +118,12 @@ static snd_ctl_ext_key_t plug_ctl_find_elem(snd_ctl_ext_t * ext,
 	unsigned int numid;
 	printf("%s %d\n", __func__, __LINE__);
 	numid = snd_ctl_elem_id_get_numid(id);
-#if 0
-	if (numid > 0 && numid <= 4)
-		return numid - 1;
 
 	name = snd_ctl_elem_id_get_name(id);
 
-	if (strcmp(name, SOURCE_VOL_NAME) == 0)
-		return 0;
-	if (strcmp(name, SOURCE_MUTE_NAME) == 0)
+	if (strcmp(name, "sof_nbame") == 0)
 		return 1;
-	if (strcmp(name, SINK_VOL_NAME) == 0)
-		return 2;
-	if (strcmp(name, SINK_MUTE_NAME) == 0)
-		return 3;
-#endif
+
 	return SND_CTL_EXT_KEY_NOT_FOUND;
 }
 
@@ -142,17 +131,10 @@ static int plug_ctl_get_attribute(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 			       int *type, unsigned int *acc,
 			       unsigned int *count)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	int err = 0;
 	printf("%s %d\n", __func__, __LINE__);
 #if 0
-	if (key > 3)
-		return -EINVAL;
-
-
-	err = sof_update_volume(ctl);
-	if (err < 0)
-		goto finish;
 
 	if (key & 1)
 		*type = SND_CTL_ELEM_TYPE_BOOLEAN;
@@ -163,13 +145,7 @@ static int plug_ctl_get_attribute(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 
 	if (key == 0)
 		*count = ctl->source_volume.channels;
-	else if (key == 2)
-		*count = ctl->sink_volume.channels;
-	else
-		*count = 1;
 
-      finish:
-	pa_threaded_mainloop_unlock(ctl->p->mainloop);
 #endif
 	return err;
 }
@@ -188,7 +164,7 @@ static int plug_ctl_get_integer_info(snd_ctl_ext_t * ext,
 static int plug_ctl_read_integer(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 			      long *value)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	int err = 0, i;
 	//pa_cvolume *vol = NULL;
 	printf("%s %d\n", __func__, __LINE__);
@@ -230,7 +206,7 @@ static int plug_ctl_read_integer(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 static int plug_ctl_write_integer(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 			       long *value)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	int err = 0, i;
 	printf("%s %d\n", __func__, __LINE__);
 
@@ -239,17 +215,16 @@ static int plug_ctl_write_integer(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 
 static void plug_ctl_subscribe_events(snd_ctl_ext_t * ext, int subscribe)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	printf("%s %d\n", __func__, __LINE__);
-	assert(ctl);
 
-	ctl->subscribed = !!(subscribe & SND_CTL_EVENT_MASK_VALUE);
+	//ctl->subscribed = !!(subscribe & SND_CTL_EVENT_MASK_VALUE);
 }
 
 static int plug_ctl_read_event(snd_ctl_ext_t * ext, snd_ctl_elem_id_t * id,
 			    unsigned int *event_mask)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	int offset;
 	int err;
 	printf("%s %d\n", __func__, __LINE__);
@@ -297,22 +272,22 @@ static int plug_ctl_poll_revents(snd_ctl_ext_t * ext, struct pollfd *pfd,
 				  unsigned int nfds,
 				  unsigned short *revents)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	int err;
 	printf("%s %d\n", __func__, __LINE__);
-	assert(ctl);
 
+#if 0
 	if (ctl->updated)
 		*revents = POLLIN;
 	else
 		*revents = 0;
-
+#endif
 	return 0;
 }
 
 static void plug_ctl_close(snd_ctl_ext_t * ext)
 {
-	snd_ctl_sof_t *ctl = ext->private_data;
+	snd_sof_ctl_t *ctl = ext->private_data;
 	printf("%s %d\n", __func__, __LINE__);
 
 	free(ctl);
@@ -334,9 +309,10 @@ static const snd_ctl_ext_callback_t sof_ext_callback = {
 
 SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 {
+	snd_sof_plug_t *plug;
 	snd_config_iterator_t i, next;
 	int err;
-	snd_ctl_sof_t *ctl;
+	snd_sof_ctl_t *ctl;
 
 	printf("%s %d\n", __func__, __LINE__);
 
@@ -350,13 +326,19 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 			continue;
 
 		SNDERR("Unknown field %s", id);
-		return -EINVAL;
+		//return -EINVAL;
 	}
+
+	/* create context */
+	plug = calloc(1, sizeof(*plug));
+	if (!plug)
+		return -ENOMEM;
 
 	ctl = calloc(1, sizeof(*ctl));
 	if (!ctl)
 		return -ENOMEM;
-
+	plug->module_prv = ctl;
+#if 0
 	ctl->ext.version = SND_CTL_EXT_VERSION;
 	ctl->ext.card_idx = 0;
 	strncpy(ctl->ext.id, "sof", sizeof(ctl->ext.id) - 1);
@@ -367,7 +349,7 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 		sizeof(ctl->ext.longname) - 1);
 	strncpy(ctl->ext.mixername, "SOF",
 		sizeof(ctl->ext.mixername) - 1);
-	ctl->ext.poll_fd = ctl->p->main_fd;
+//	ctl->ext.poll_fd = ctl->p->main_fd;
 
 	ctl->ext.callback = &sof_ext_callback;
 	ctl->ext.private_data = ctl;
@@ -377,7 +359,7 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 		goto error;
 
 	*handlep = ctl->ext.handle;
-
+#endif
 	return 0;
 
 error:

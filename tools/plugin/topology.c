@@ -40,7 +40,7 @@
 
 #include <alsa/sound/uapi/asoc.h>
 
-static int plug_load_fileread(snd_pcm_sof_t *pcm,
+static int plug_load_fileread(snd_sof_plug_t *pcm,
 			      struct sof_ipc_comp_file *fileread)
 {
 	struct tplg_context *ctx = &pcm->tplg;
@@ -110,7 +110,7 @@ static int plug_load_fileread(snd_pcm_sof_t *pcm,
 }
 
 /* load filewrite component */
-static int plug_load_filewrite(snd_pcm_sof_t *pcm,
+static int plug_load_filewrite(snd_sof_plug_t *pcm,
 			       struct sof_ipc_comp_file *filewrite)
 {
 	struct tplg_context *ctx = &pcm->tplg;
@@ -173,7 +173,7 @@ static int plug_load_filewrite(snd_pcm_sof_t *pcm,
 }
 
 /* load fileread component */
-static int load_fileread(snd_pcm_sof_t *pcm, int dir)
+static int load_fileread(snd_sof_plug_t *pcm, int dir)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	FILE *file = ctx->file;
@@ -221,7 +221,7 @@ static int load_fileread(snd_pcm_sof_t *pcm, int dir)
 }
 
 /* load filewrite component */
-static int load_filewrite(snd_pcm_sof_t *pcm, int dir)
+static int load_filewrite(snd_sof_plug_t *pcm, int dir)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct sof *sof = ctx->sof;
@@ -270,7 +270,7 @@ static int load_filewrite(snd_pcm_sof_t *pcm, int dir)
 	return ret;
 }
 
-static int plug_aif_in_out(snd_pcm_sof_t *pcm, int dir)
+static int plug_aif_in_out(snd_sof_plug_t *pcm, int dir)
 {
 	if (dir == SOF_IPC_STREAM_PLAYBACK)
 		return load_fileread(pcm, dir);
@@ -278,7 +278,7 @@ static int plug_aif_in_out(snd_pcm_sof_t *pcm, int dir)
 		return load_filewrite(pcm, dir);
 }
 
-static int plug_dai_in_out(snd_pcm_sof_t *pcm, int dir)
+static int plug_dai_in_out(snd_sof_plug_t *pcm, int dir)
 {
 	if (dir == SOF_IPC_STREAM_PLAYBACK)
 		return load_filewrite(pcm, dir);
@@ -317,7 +317,7 @@ static const snd_ctl_ext_callback_t sof_ext_callback = {
 #endif
 };
 
-static int plug_ctl_create(snd_pcm_sof_t *pcm)
+static int plug_ctl_create(snd_sof_plug_t *pcm)
 {
 	snd_ctl_ext_t *ctl;
 	int err;
@@ -349,7 +349,7 @@ static int plug_ctl_create(snd_pcm_sof_t *pcm)
 	return 0;
 }
 
-static int plug_new_pga_ipc(snd_pcm_sof_t *pcm)
+static int plug_new_pga_ipc(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_volume volume = {0};
@@ -374,7 +374,7 @@ out:
 	return ret;
 }
 
-static int plug_new_mixer_ipc(snd_pcm_sof_t *pcm)
+static int plug_new_mixer_ipc(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_mixer mixer = {0};
@@ -398,7 +398,7 @@ out:
 	return ret;
 }
 
-static int plug_new_src_ipc(snd_pcm_sof_t *pcm)
+static int plug_new_src_ipc(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_src src = {0};
@@ -422,7 +422,7 @@ out:
 	return ret;
 }
 
-static int plug_new_asrc_ipc(snd_pcm_sof_t *pcm)
+static int plug_new_asrc_ipc(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_asrc asrc = {0};
@@ -446,7 +446,7 @@ out:
 	return ret;
 }
 
-static int plug_new_process_ipc(snd_pcm_sof_t *pcm)
+static int plug_new_process_ipc(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_process process = {0};
@@ -470,7 +470,7 @@ out:
 	return ret;
 }
 
-static int plug_new_pipeline_ipc(snd_pcm_sof_t *pcm)
+static int plug_new_pipeline_ipc(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_pipe_new pipeline = {0};
@@ -494,7 +494,7 @@ out:
 	return ret;
 }
 
-static int plug_new_buffer_ipc(snd_pcm_sof_t *pcm)
+static int plug_new_buffer_ipc(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_buffer buffer = {0};
@@ -519,7 +519,7 @@ out:
 }
 
 /* load dapm widget */
-int plug_load_widget(snd_pcm_sof_t *pcm)
+int plug_load_widget(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	struct comp_info *temp_comp_list = ctx->info;
@@ -678,7 +678,7 @@ enum sof_ipc_dai_type find_dai(const char *string)
 	return 0;
 }
 
-int plug_register_graph(snd_pcm_sof_t *pcm, struct comp_info *temp_comp_list,
+int plug_register_graph(snd_sof_plug_t *pcm, struct comp_info *temp_comp_list,
 			char *pipeline_string, FILE *file,
 			int count, int num_comps, int pipeline_id)
 {
@@ -722,7 +722,7 @@ int plug_register_graph(snd_pcm_sof_t *pcm, struct comp_info *temp_comp_list,
 }
 
 /* parse topology file and set up pipeline */
-int plug_parse_topology(snd_pcm_sof_t *pcm)
+int plug_parse_topology(snd_sof_plug_t *pcm)
 {
 	struct tplg_context *ctx = &pcm->tplg;
 	int pipeline_num = pcm->tplg.pipeline_id;
