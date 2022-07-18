@@ -207,47 +207,6 @@ void plug_add_pipe_arg(snd_sof_plug_t *pcm, const char *option, const char *arg)
 	}
 }
 
-#define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
-
-/*
- * Pipe is used to transfer audio data in R/W mode (not mmap)
- */
-int plug_create_locks(snd_sof_plug_t *pcm)
-{
-	pcm->ready_lock_name = "/sofplugready";
-	pcm->done_lock_name = "/sofplugdone";
-
-	/* RW blocking lock */
-	sem_unlink(pcm->ready_lock_name);
-	pcm->ready_lock = sem_open(pcm->ready_lock_name,
-				O_CREAT | O_RDWR | O_EXCL,
-				SEM_PERMS, 1);
-	if (pcm->ready_lock == SEM_FAILED) {
-		SNDERR("failed to create semaphore %s: %s",
-			pcm->ready_lock_name, strerror(errno));
-		return -errno;
-	}
-
-	/* RW blocking lock */
-	sem_unlink(pcm->done_lock_name);
-	pcm->done_lock = sem_open(pcm->done_lock_name,
-				O_CREAT | O_RDWR | O_EXCL,
-				SEM_PERMS, 0);
-	if (pcm->done_lock == SEM_FAILED) {
-		SNDERR("failed to create semaphore %s: %s",
-			pcm->done_lock_name, strerror(errno));
-		sem_unlink(pcm->ready_lock_name);
-		return -errno;
-	}
-
-	/* ready lock args */
-	plug_add_pipe_arg(pcm, "r", pcm->ready_lock_name);
-
-	/* done lock args */
-	plug_add_pipe_arg(pcm, "d", pcm->done_lock_name);
-
-	return 0;
-}
 
 /*
  * IPC uses message queues for Tx/Rx mailbox and doorbell.
@@ -285,95 +244,50 @@ int plug_create_ipc_queue(snd_sof_plug_t *pcm)
  * IPC uses message queues for Tx/Rx mailbox and doorbell.
  * TODO: set shm name
  */
-int plug_create_mmap_regions(snd_sof_plug_t *pcm)
+int plug_create_mmap_regions(snd_sof_plug_t *plug)
 {
 	void *addr;
 	int err;
 
 	// TODO: set name/size from conf
-	pcm->context_name = "sofpipe_context";
-	pcm->context_size = 0x100;
+	plug->context_name = "sofpipe_context";
+	plug->context_size = 0x100;
 
 	/* make sure we have a clean sham */
-	shm_unlink(pcm->context_name);
+	shm_unlink(plug->context_name);
 
 	/* open SHM to be used for low latency position */
-	pcm->context_fd = shm_open(pcm->context_name,
+	plug->context_fd = shm_open(plug->context_name,
 				    O_RDWR | O_CREAT,
 				    S_IRWXU | S_IRWXG);
-	if (pcm->context_fd < 0) {
+	if (plug->context_fd < 0) {
 		SNDERR("failed to create SHM position %s: %s",
-			pcm->context_name, strerror(errno));
+				plug->context_name, strerror(errno));
 		return -errno;
 	}
 
 	/* set SHM size */
-	err = ftruncate(pcm->context_fd, pcm->context_size);
+	err = ftruncate(plug->context_fd, plug->context_size);
 	if (err < 0) {
 		SNDERR("failed to truncate SHM position %s: %s",
-			pcm->context_name, strerror(errno));
-		shm_unlink(pcm->context_name);
+				plug->context_name, strerror(errno));
+		shm_unlink(plug->context_name);
 		return -errno;
 	}
 
 	/* map it locally for context readback */
-	pcm->context_addr = mmap(NULL, pcm->context_size,
+	plug->context_addr = mmap(NULL, plug->context_size,
 				  PROT_READ | PROT_WRITE,
-				  MAP_SHARED, pcm->context_fd, 0);
-	if (pcm->context_addr == NULL) {
+				  MAP_SHARED, plug->context_fd, 0);
+	if (plug->context_addr == NULL) {
 		SNDERR("failed to mmap SHM position%s: %s",
-			pcm->context_name, strerror(errno));
-		shm_unlink(pcm->context_name);
+				plug->context_name, strerror(errno));
+		shm_unlink(plug->context_name);
 		return -errno;
 	}
-
-	// TODO: set name/size from conf
-	pcm->io_name = "sofpipe_data";
-	pcm->io_size = 0x10000;
-
-	/* make sure we have a clean sham */
-	shm_unlink(pcm->io_name);
-
-	/* open SHM to be used for low latency position */
-	pcm->io_fd = shm_open(pcm->io_name,
-				    O_RDWR | O_CREAT,
-				    S_IRWXU | S_IRWXG);
-	if (pcm->io_fd < 0) {
-		SNDERR("failed to create SHM io %s: %s",
-			pcm->io_name, strerror(errno));
-		munmap(pcm->context_addr, pcm->context_size);
-		shm_unlink(pcm->context_name);
-		return -errno;
-	}
-
-	/* set SHM size */
-	err = ftruncate(pcm->io_fd, pcm->io_size);
-	if (err < 0) {
-		SNDERR("failed to truncate SHM position %s: %s",
-			pcm->context_name, strerror(errno));
-		munmap(pcm->context_addr, pcm->context_size);
-		shm_unlink(pcm->context_name);
-		shm_unlink(pcm->io_name);
-		return -errno;
-	}
-
-	/* map it locally for context readback */
-	pcm->io_addr = mmap(NULL, pcm->io_size,
-				  PROT_READ | PROT_WRITE,
-				  MAP_SHARED, pcm->io_fd, 0);
-	if (pcm->io_addr == NULL) {
-		SNDERR("failed to mmap SHM position%s: %s",
-			pcm->io_name, strerror(errno));
-		shm_unlink(pcm->io_name);
-		shm_unlink(pcm->context_name);
-		return -errno;
-	}
-
-	/* IO args */
-	plug_add_pipe_arg(pcm, "M", pcm->io_name);
 
 	/* context args */
-	plug_add_pipe_arg(pcm, "C", pcm->context_name);
+	plug_add_pipe_arg(plug, "C", plug->context_name);
 
 	return 0;
 }

@@ -55,20 +55,18 @@
 #define MS_TO_US(_msus)	(_msus * 1000)
 #define MS_TO_NS(_msns) (MS_TO_US(_msns * 1000))
 
-struct tplg_context;
+#define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
 
 struct plug_context {
 	snd_pcm_sframes_t frames;	/* number of frames copied */
 	snd_pcm_sframes_t position;	/* current position in buffer */
-	snd_pcm_uframes_t  buffer_frames;		/* buffer size */
+	snd_pcm_uframes_t buffer_frames;		/* buffer size */
 };
 
 typedef struct snd_sof_plug {
-	snd_pcm_ioplug_t io;
 
 	/* audio data */
 	pid_t cpid;
-	struct timespec wait_timeout;
 
 	/* IPC message queue */
 	mqd_t ipc;
@@ -88,25 +86,12 @@ typedef struct snd_sof_plug {
 	char *context_name;
 	void *context_addr;
 
-	/* SHM for audio IO */
-	int io_fd;
-	int io_size;
-	char *io_name;
-	void *io_addr;
 
-	/* audio IO blocking flow control */
-	sem_t *ready_lock;
-	char *ready_lock_name;
-	sem_t *done_lock;
-	char *done_lock_name;
 
 	/* conf data */
 	char *device;
 
 	struct pipeline *pipeline;
-
-	size_t frame_size;
-	snd_pcm_sframes_t position;
 
 	struct tplg_context tplg;
 
