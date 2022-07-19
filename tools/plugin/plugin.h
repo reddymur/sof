@@ -57,7 +57,13 @@
 
 #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
 
+enum plugin_state {
+	SOF_PLUGIN_STATE_INIT	= 0,
+	SOF_PLUGIN_STATE_READY	= 1,
+};
+
 struct plug_context {
+	//enum plugin_state state;
 	snd_pcm_sframes_t frames;	/* number of frames copied */
 	snd_pcm_sframes_t position;	/* current position in buffer */
 	snd_pcm_uframes_t buffer_frames;		/* buffer size */
@@ -86,8 +92,6 @@ typedef struct snd_sof_plug {
 	char *context_name;
 	void *context_addr;
 
-
-
 	/* conf data */
 	char *device;
 
@@ -95,7 +99,6 @@ typedef struct snd_sof_plug {
 
 	struct tplg_context tplg;
 
-	const char *tplg_file;
 	const char *alsa_device;
 	long tplg_pcm;
 	long alsa_card;
@@ -125,7 +128,9 @@ void plug_child_complete_init(snd_sof_plug_t *pcm, int capture);
 
 int plug_create_mmap_regions(snd_sof_plug_t *pcm);
 
-int plug_create_ipc_queue(snd_sof_plug_t *pcm);
+int plug_create_pcm_ipc_queue(snd_sof_plug_t *pcm);
+
+int plug_open_ipc_queue(snd_sof_plug_t *plug);
 
 int plug_create_locks(snd_sof_plug_t *pcm);
 
@@ -138,3 +143,6 @@ int plug_check_sofpipe_status(snd_sof_plug_t *pcm);
 int plug_init_signals(snd_sof_plug_t *pcm);
 
 void timespec_add_ms(struct timespec *ts, unsigned long ms);
+
+int plug_parse_conf(snd_sof_plug_t *plug, const char *name, snd_config_t *root,
+		    snd_config_t *conf);

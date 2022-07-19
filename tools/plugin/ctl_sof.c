@@ -314,20 +314,7 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 	int err;
 	snd_sof_ctl_t *ctl;
 
-	printf("%s %d\n", __func__, __LINE__);
-
-	snd_config_for_each(i, next, conf) {
-		snd_config_t *n = snd_config_iterator_entry(i);
-		const char *id;
-		if (snd_config_get_id(n, &id) < 0)
-			continue;
-		if (strcmp(id, "comment") == 0 || strcmp(id, "type") == 0
-		    || strcmp(id, "hint") == 0)
-			continue;
-
-		SNDERR("Unknown field %s", id);
-		//return -EINVAL;
-	}
+	printf("%s %d name %s\n", __func__, __LINE__, name);
 
 	/* create context */
 	plug = calloc(1, sizeof(*plug));
@@ -338,6 +325,37 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 	if (!ctl)
 		return -ENOMEM;
 	plug->module_prv = ctl;
+	printf("%s %d name %s\n", __func__, __LINE__, name);
+	/* parse the ALSA configuration file for sof plugin */
+	err = plug_parse_conf(plug, name, root, conf);
+	if (err < 0) {
+		SNDERR("failed to parse config: %s", strerror(err));
+		goto error;
+	}
+	printf("%s %d name %s\n", __func__, __LINE__, name);
+	/* open message queue for IPC */
+	err = plug_open_ipc_queue(plug);
+	if (err < 0) {
+		SNDERR("failed to open IPC message queue: %s", strerror(err));
+		SNDERR("The PCM needs to be open for mixers to connect to pipeline");
+		goto error;
+	}
+	printf("%s %d name %s\n", __func__, __LINE__, name);
+	/* register interest in signals from child */
+	err = plug_init_signals(plug);
+	if (err < 0)
+		goto error;
+	printf("%s %d name %s\n", __func__, __LINE__, name);
+	/* create a SHM mapping for low latency stream position */
+	err = plug_create_mmap_regions(plug);
+	if (err < 0)
+		goto error;
+	printf("%s %d name %s\n", __func__, __LINE__, name);
+
+
+	/* everything is good */
+	return 0;
+
 #if 0
 	ctl->ext.version = SND_CTL_EXT_VERSION;
 	ctl->ext.card_idx = 0;

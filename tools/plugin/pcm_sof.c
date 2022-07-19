@@ -588,80 +588,6 @@ static int plug_create(snd_sof_plug_t *plug, snd_pcm_t **pcmp, const char *name,
 	*pcmp = pcm->io.pcm;
 	return 0;
 }
-/*
- * Parse the ALSA conf for the SOF plugin and construct the command line options
- * to be passed into the SOF pipe executable.
- * TODO: verify all args
- * TODO: validate all arge.
- * TODO: contruct sof pipe cmd line.
- */
-static int plug_parse_conf(snd_sof_plug_t *plug, snd_pcm_t **pcmp,
-			  const char *name, snd_config_t *root,
-			  snd_config_t *conf, snd_pcm_stream_t stream, int mode)
-{
-	snd_config_iterator_t i, next;
-	const char *tplg_file = NULL;
-	const char *alsa_device = NULL;
-	long tplg_pcm = 0;
-	long alsa_card = 0;
-	long alsa_pcm = 0;
-	int err;
-
-	/*
-	 * The topology filename and topology PCM need to be passed in.
-	 * i.e. aplay -Dsof:file,plug
-	 */
-	snd_config_for_each(i, next, conf) {
-		snd_config_t *n = snd_config_iterator_entry(i);
-		const char *id;
-		if (snd_config_get_id(n, &id) < 0)
-			continue;
-
-		/* dont care */
-		if (strcmp(id, "comment") == 0 || strcmp(id, "type") == 0
-		    || strcmp(id, "hint") == 0)
-			continue;
-
-		/* topology file name */
-		if (strcmp(id, "tplg_file") == 0) {
-			if (snd_config_get_string(n, &tplg_file) < 0) {
-				SNDERR("Invalid type for %s", id);
-				return -EINVAL;
-			} else if (!*tplg_file) {
-				tplg_file = NULL;
-			}
-			continue;
-		}
-
-		/* PCM ID in the topology file */
-		if (strcmp(id, "tplg_pcm") == 0) {
-			if (snd_config_get_integer(n, &tplg_pcm) < 0) {
-				SNDERR("Invalid type for %s", id);
-				return -EINVAL;
-			}
-			continue;
-		}
-
-		/* not fatal - carry on and verify later */
-		SNDERR("Unknown field %s", id);
-	}
-
-	/* verify mandatory inputs are specified */
-	if (!tplg_file) {
-		SNDERR("Missing topology file");
-		return -EINVAL;
-	}
-	plug->tplg.tplg_file = strdup(tplg_file);
-	plug->tplg.pipeline_id = tplg_pcm;
-
-	printf("%s topology file %s plug %ld\n", __func__, tplg_file, tplg_pcm);
-	plug->device = strdup(tplg_file);
-	if (!plug->device) {
-		return -ENOMEM;
-	}
-
-	return 0;
-}
 
 /*
  * Pipe is used to transfer audio data in R/W mode (not mmap)
@@ -802,7 +728,7 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 		pcm->capture = 1;
 
 	/* parse the ALSA configuration file for sof plugin */
-	err = plug_parse_conf(plug, pcmp, name, root, conf, stream, mode);
+	err = plug_parse_conf(plug, name, root, conf);
 	if (err < 0) {
 		SNDERR("failed to parse config: %s", strerror(err));
 		goto pipe_error;
@@ -814,7 +740,7 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 		goto pipe_error;
 
 	/* create message queue for IPC */
-	err = plug_create_ipc_queue(plug);
+	err = plug_create_pcm_ipc_queue(plug);
 	if (err < 0)
 		goto ipc_error;
 

@@ -207,35 +207,59 @@ void plug_add_pipe_arg(snd_sof_plug_t *pcm, const char *option, const char *arg)
 	}
 }
 
+static int create_file_names(snd_sof_plug_t *plug)
+{
+	printf("plug topology name : %s\n", plug->tplg.tplg_file);
+}
 
 /*
  * IPC uses message queues for Tx/Rx mailbox and doorbell.
  * TODO: do we need non blocking MQ mode ?
  */
-int plug_create_ipc_queue(snd_sof_plug_t *pcm)
+int plug_create_pcm_ipc_queue(snd_sof_plug_t *plug)
 {
 	int err;
 
-	// TODO: get from conf/cmd line
-	pcm->ipc_queue_name = "/sofipc";
+	create_file_names(plug);
 
-	pcm->ipc_attr.mq_msgsize = 384; /* TODO align */
-	pcm->ipc_attr.mq_maxmsg = 4;
+	// TODO: get from conf/cmd line
+	plug->ipc_queue_name = "/sofipc";
+
+	plug->ipc_attr.mq_msgsize = 384; /* TODO align */
+	plug->ipc_attr.mq_maxmsg = 4;
 
 	/* delete any stale message queues */
-	mq_unlink(pcm->ipc_queue_name);
+	mq_unlink(plug->ipc_queue_name);
 
 	/* now open new queue for Tx and Rx */
-	pcm->ipc = mq_open(pcm->ipc_queue_name, O_CREAT | O_RDWR | O_EXCL,
-			S_IRWXU | S_IRWXG, &pcm->ipc_attr);
-	if (pcm->ipc < 0) {
+	plug->ipc = mq_open(plug->ipc_queue_name, O_CREAT | O_RDWR | O_EXCL,
+			S_IRWXU | S_IRWXG, &plug->ipc_attr);
+	if (plug->ipc < 0) {
 		SNDERR("failed to create IPC queue %s: %s",
-			pcm->ipc_queue_name, strerror(errno));
+				plug->ipc_queue_name, strerror(errno));
 		return -errno;
 	}
 
 	/* IPC args */
-	plug_add_pipe_arg(pcm, "i", pcm->ipc_queue_name);
+	plug_add_pipe_arg(plug, "i", plug->ipc_queue_name);
+
+	return 0;
+}
+
+int plug_open_ipc_queue(snd_sof_plug_t *plug)
+{
+	int err;
+
+	// TODO: get from conf/cmd line
+	plug->ipc_queue_name = "/sofipc";
+
+	/* now open new queue for Tx and Rx */
+	err = mq_open(plug->ipc_queue_name,  O_RDWR | O_EXCL);
+	if (err < 0) {
+		SNDERR("failed to create IPC queue %s: %s\n",
+			plug->ipc_queue_name, strerror(errno));
+		return -errno;
+	}
 
 	return 0;
 }
@@ -318,3 +342,76 @@ void plug_child_complete_init(snd_sof_plug_t *pcm, int capture)
 	_exit(EXIT_FAILURE);
 }
 
+/*
+ * Parse the ALSA conf for the SOF plugin and construct the command line options
+ * to be passed into the SOF pipe executable.
+ * TODO: verify all args
+ * TODO: validate all arge.
+ * TODO: contruct sof pipe cmd line.
+ */
+int plug_parse_conf(snd_sof_plug_t *plug, const char *name, snd_config_t *root,
+		    snd_config_t *conf)
+{
+	snd_config_iterator_t i, next;
+	const char *tplg_file = NULL;
+	const char *alsa_device = NULL;
+	long tplg_pcm = 0;
+	long alsa_card = 0;
+	long alsa_pcm = 0;
+	int err;
+
+	/*
+	 * The topology filename and topology PCM need to be passed in.
+	 * i.e. aplay -Dsof:file,plug
+	 */
+	snd_config_for_each(i, next, conf) {
+		snd_config_t *n = snd_config_iterator_entry(i);
+		const char *id;
+		if (snd_config_get_id(n, &id) < 0)
+			continue;
+
+		/* dont care */
+		if (strcmp(id, "comment") == 0 || strcmp(id, "type") == 0
+		    || strcmp(id, "hint") == 0)
+			continue;
+
+		/* topology file name */
+		if (strcmp(id, "tplg_file") == 0) {
+			if (snd_config_get_string(n, &tplg_file) < 0) {
+				SNDERR("Invalid type for %s", id);
+				return -EINVAL;
+			} else if (!*tplg_file) {
+				tplg_file = NULL;
+			}
+			continue;
+		}
+
+		/* PCM ID in the topology file */
+		if (strcmp(id, "tplg_pcm") == 0) {
+			if (snd_config_get_integer(n, &tplg_pcm) < 0) {
+				SNDERR("Invalid type for %s", id);
+				return -EINVAL;
+			}
+			continue;
+		}
+
+		/* not fatal - carry on and verify later */
+		SNDERR("Unknown field %s", id);
+	}
+
+	/* verify mandatory inputs are specified */
+	if (!tplg_file) {
+		SNDERR("Missing topology file");
+		return -EINVAL;
+	}
+	plug->tplg.tplg_file = strdup(tplg_file);
+	plug->tplg.pipeline_id = tplg_pcm;
+
+	printf("%s topology file %s plug %ld\n", __func__, tplg_file, tplg_pcm);
+	plug->device = strdup(tplg_file);
+	if (!plug->device) {
+		return -ENOMEM;
+	}
+
+	return 0;
+}
