@@ -29,6 +29,8 @@
 #include <limits.h>
 #include <getopt.h>
 
+#include "common.h"
+
 struct sof_pipe {
 	const char *alsa_name;
 	const char *ipc_msg_queue;
@@ -58,12 +60,6 @@ struct sof_pipe {
 	FILE *log;
 
 	pthread_t ipc_thread;
-};
-
-struct plug_context {
-	size_t frames;
-	size_t position;
-	size_t buffer_frames;
 };
 
 #if 0

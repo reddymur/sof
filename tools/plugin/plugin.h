@@ -1,24 +1,11 @@
-/*-*- linux-c -*-*/
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Copyright(c) 2022 Intel Corporation. All rights reserved.
+//
+// Author: Liam Girdwood <liam.r.girdwood@linux.intel.com>
 
-/*
- * ALSA <-> SOF PCM I/O plugin
- *
- * Copyright (c) 2022 by Liam Girdwood <liam.r.girdwood@intel.com>
- *
- * This library is free software; you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
- */
+#ifndef __SOF_PLUGIN_PLUGIN_H__
+#define __SOF_PLUGIN_PLUGIN_H__
 
 #include <stdio.h>
 #include <sys/poll.h>
@@ -47,27 +34,7 @@
 
 #include <alsa/asoundlib.h>
 
-#define IPC3_MAX_MSG_SIZE	384
-
-#define MS_TO_US(_msus)	(_msus * 1000)
-#define MS_TO_NS(_msns) (MS_TO_US(_msns * 1000))
-
-#define MS_TO_US(_msus)	(_msus * 1000)
-#define MS_TO_NS(_msns) (MS_TO_US(_msns * 1000))
-
-#define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
-
-enum plugin_state {
-	SOF_PLUGIN_STATE_INIT	= 0,
-	SOF_PLUGIN_STATE_READY	= 1,
-};
-
-struct plug_context {
-	//enum plugin_state state;
-	snd_pcm_sframes_t frames;	/* number of frames copied */
-	snd_pcm_sframes_t position;	/* current position in buffer */
-	snd_pcm_uframes_t buffer_frames;		/* buffer size */
-};
+#include "common.h"
 
 typedef struct snd_sof_plug {
 
@@ -146,3 +113,6 @@ void timespec_add_ms(struct timespec *ts, unsigned long ms);
 
 int plug_parse_conf(snd_sof_plug_t *plug, const char *name, snd_config_t *root,
 		    snd_config_t *conf);
+
+#endif
+

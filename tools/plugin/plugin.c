@@ -275,7 +275,7 @@ int plug_create_mmap_regions(snd_sof_plug_t *plug)
 
 	// TODO: set name/size from conf
 	plug->context_name = "sofpipe_context";
-	plug->context_size = 0x100;
+	plug->context_size = 0x1000;
 
 	/* make sure we have a clean sham */
 	shm_unlink(plug->context_name);

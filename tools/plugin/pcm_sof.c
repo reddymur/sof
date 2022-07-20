@@ -1,26 +1,8 @@
-/*-*- linux-c -*-*/
-
-/*
- * ALSA <-> SOF PCM I/O plugin
- *
- * Copyright (c) 2022 by Liam Girdwood <liam.r.girdwood@intel.com>
- *
- * This library is free software; you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation; either version 2.1 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
- */
-
-#define _GNU_SOURCE
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Copyright(c) 2022 Intel Corporation. All rights reserved.
+//
+// Author: Liam Girdwood <liam.r.girdwood@linux.intel.com>
 
 #include <stdio.h>
 #include <sys/poll.h>
@@ -384,6 +366,7 @@ static int plug_pcm_hw_params(snd_pcm_ioplug_t * io,
 static int plug_pcm_sw_params(snd_pcm_ioplug_t *io, snd_pcm_sw_params_t *params)
 {
 	snd_sof_plug_t *plug = io->private_data;
+	snd_sof_pcm_t *pcm = plug->module_prv;
 	snd_pcm_uframes_t start_threshold;
 	struct plug_context *ctx = plug->context_addr;
 	int err;
@@ -391,7 +374,7 @@ static int plug_pcm_sw_params(snd_pcm_ioplug_t *io, snd_pcm_sw_params_t *params)
 	err = plug_check_sofpipe_status(plug);
 	if (err)
 		return err;
-#if 0
+#if 1
 	/* get the stream start threshold */
 	err = snd_pcm_sw_params_get_start_threshold(params, &start_threshold);
 	if (err < 0) {
@@ -403,7 +386,7 @@ static int plug_pcm_sw_params(snd_pcm_ioplug_t *io, snd_pcm_sw_params_t *params)
 	if (start_threshold < io->period_size) {
 
 		start_threshold = io->period_size;
-		err = snd_pcm_sw_params_set_start_threshold(plug->io.pcm,
+		err = snd_pcm_sw_params_set_start_threshold(pcm->io.pcm,
 							    params, start_threshold);
 		if (err < 0) {
 			SNDERR("sw params: failed to set start threshold %d: %s",
@@ -413,7 +396,7 @@ static int plug_pcm_sw_params(snd_pcm_ioplug_t *io, snd_pcm_sw_params_t *params)
 	}
 
 	/* keep running as long as we can */
-	err = snd_pcm_sw_params_set_avail_min(plug->io.pcm, params, 1);
+	err = snd_pcm_sw_params_set_avail_min(pcm->io.pcm, params, 1);
 	if (err < 0) {
 		SNDERR("sw params: failed to set avail min %d: %s",
 			1, strerror(err));
