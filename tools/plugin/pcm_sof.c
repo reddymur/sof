@@ -52,11 +52,14 @@ typedef struct snd_sof_pcm {
 	char *io_name;
 	void *io_addr;
 
+	struct plug_mq ipc;
+
 } snd_sof_pcm_t;
 
 static int plug_pcm_start(snd_pcm_ioplug_t * io)
 {
 	snd_sof_plug_t *plug = io->private_data;
+	snd_sof_pcm_t *pcm = plug->module_prv;
 	struct sof_ipc_stream stream = {0};
 	int err;
 
@@ -70,7 +73,7 @@ static int plug_pcm_start(snd_pcm_ioplug_t * io)
 	stream.hdr.cmd = SOF_IPC_GLB_STREAM_MSG | SOF_IPC_STREAM_TRIG_START;
 	//stream.comp_id =
 
-	err = plug_ipc_cmd(plug, &stream, sizeof(stream), &stream, sizeof(stream));
+	err = plug_ipc_cmd(&pcm->ipc, &stream, sizeof(stream), &stream, sizeof(stream));
 	if (err < 0) {
 		SNDERR("error: can't trigger START the PCM\n");
 		return err;
@@ -82,6 +85,7 @@ static int plug_pcm_start(snd_pcm_ioplug_t * io)
 static int plug_pcm_stop(snd_pcm_ioplug_t * io)
 {
 	snd_sof_plug_t *plug = io->private_data;
+	snd_sof_pcm_t *pcm = plug->module_prv;
 	struct sof_ipc_stream stream = {0};
 	int err;
 
@@ -95,7 +99,7 @@ static int plug_pcm_stop(snd_pcm_ioplug_t * io)
 	stream.hdr.cmd = SOF_IPC_GLB_STREAM_MSG | SOF_IPC_STREAM_TRIG_STOP;
 	//stream.comp_id =
 
-	err = plug_ipc_cmd(plug, &stream, sizeof(stream), &stream, sizeof(stream));
+	err = plug_ipc_cmd(&pcm->ipc, &stream, sizeof(stream), &stream, sizeof(stream));
 	if (err < 0) {
 		SNDERR("error: can't trigger STOP the PCM\n");
 		return err;
@@ -121,7 +125,7 @@ static snd_pcm_sframes_t plug_pcm_pointer(snd_pcm_ioplug_t *io)
 {
 	snd_sof_plug_t *plug = io->private_data;
 	snd_sof_pcm_t *pcm = plug->module_prv;
-	struct plug_context *ctx = plug->context_addr;
+	struct plug_context *ctx = plug->shm_context.addr;
 	snd_pcm_sframes_t ret = 0;
 	int err;
 
@@ -180,7 +184,7 @@ static snd_pcm_sframes_t plug_pcm_write(snd_pcm_ioplug_t *io,
 {
 	snd_sof_plug_t *plug = io->private_data;
 	snd_sof_pcm_t *pcm = plug->module_prv;
-	struct plug_context *ctx = plug->context_addr;
+	struct plug_context *ctx = plug->shm_context.addr;
 	snd_pcm_sframes_t ret = 0;
 	ssize_t bytes;
 	const char *buf;
@@ -227,7 +231,7 @@ static snd_pcm_sframes_t plug_pcm_read(snd_pcm_ioplug_t *io,
 {
 	snd_sof_plug_t *plug = io->private_data;
 	snd_sof_pcm_t *pcm = plug->module_prv;
-	struct plug_context *ctx = plug->context_addr;
+	struct plug_context *ctx = plug->shm_context.addr;
 	snd_pcm_sframes_t ret = 0;
 	ssize_t bytes;
 	char *buf;
@@ -353,7 +357,7 @@ static int plug_pcm_hw_params(snd_pcm_ioplug_t * io,
 	ipc_params.hdr.size = sizeof(ipc_params);
 	ipc_params.hdr.cmd = SOF_IPC_GLB_STREAM_MSG | SOF_IPC_STREAM_PCM_PARAMS;
 
-	err = plug_ipc_cmd(plug, &ipc_params, sizeof(ipc_params),
+	err = plug_ipc_cmd(&pcm->ipc, &ipc_params, sizeof(ipc_params),
 			   &params_reply, sizeof(params_reply));
 	if (err < 0) {
 		SNDERR("error: can't set PCM params\n");
@@ -368,13 +372,13 @@ static int plug_pcm_sw_params(snd_pcm_ioplug_t *io, snd_pcm_sw_params_t *params)
 	snd_sof_plug_t *plug = io->private_data;
 	snd_sof_pcm_t *pcm = plug->module_prv;
 	snd_pcm_uframes_t start_threshold;
-	struct plug_context *ctx = plug->context_addr;
+	struct plug_context *ctx = plug->shm_context.addr;
 	int err;
 
 	err = plug_check_sofpipe_status(plug);
 	if (err)
 		return err;
-#if 1
+
 	/* get the stream start threshold */
 	err = snd_pcm_sw_params_get_start_threshold(params, &start_threshold);
 	if (err < 0) {
@@ -382,7 +386,7 @@ static int plug_pcm_sw_params(snd_pcm_ioplug_t *io, snd_pcm_sw_params_t *params)
 		return err;
 	}
 
-	/* this seems to be ignored or overridden by application params */
+	/* TODO: this seems to be ignored or overridden by application params ??? */
 	if (start_threshold < io->period_size) {
 
 		start_threshold = io->period_size;
@@ -402,7 +406,7 @@ static int plug_pcm_sw_params(snd_pcm_ioplug_t *io, snd_pcm_sw_params_t *params)
 			1, strerror(err));
 		return err;
 	}
-#endif
+
 	ctx->buffer_frames = io->buffer_size;
 	printf("size %ld\n", ctx->buffer_frames);
 	return 0;
@@ -640,7 +644,7 @@ static int plug_pcm_create_mmap_regions(snd_sof_plug_t *plug)
 	err = ftruncate(pcm->io_fd, pcm->io_size);
 	if (err < 0) {
 		SNDERR("failed to truncate SHM position %s: %s",
-				plug->context_name, strerror(errno));
+				plug->shm_context.name, strerror(errno));
 		shm_unlink(pcm->io_name);
 		return -errno;
 	}
@@ -668,7 +672,7 @@ int plug_parent_complete_init(snd_sof_plug_t *plug, snd_pcm_t **pcmp,
 {
 	int err;
 
-	/* load the topology TDOD: add pipleijn ID*/
+	/* load the topology TDOD: add pipeline ID*/
 	err = plug_parse_topology(plug);
 	if (err < 0) {
 		SNDERR("failed to parse topology: %s", strerror(err));
@@ -723,7 +727,7 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 		goto pipe_error;
 
 	/* create message queue for IPC */
-	err = plug_create_pcm_ipc_queue(plug);
+	err = plug_create_ipc_queue(plug);
 	if (err < 0)
 		goto ipc_error;
 
@@ -770,12 +774,12 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 
 	/* error cleanup */
 fork_error:
-	munmap(plug->context_addr, plug->context_size);
-	shm_unlink(plug->context_name);
+	munmap(plug->shm_context.addr, plug->shm_context.size);
+	shm_unlink(plug->shm_context.name);
 	munmap(pcm->io_addr, pcm->io_size);
 	shm_unlink(pcm->io_name);
 signal_error:
-	mq_unlink(plug->ipc_queue_name);
+	mq_unlink(pcm->ipc.queue_name);
 ipc_error:
 
 pipe_error:

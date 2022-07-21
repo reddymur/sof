@@ -41,11 +41,6 @@ typedef struct snd_sof_plug {
 	/* audio data */
 	pid_t cpid;
 
-	/* IPC message queue */
-	mqd_t ipc;
-	struct mq_attr ipc_attr;
-	const char *ipc_queue_name;
-
 	struct sigaction action;
 
 	/* sof-pipe arguments */
@@ -53,11 +48,7 @@ typedef struct snd_sof_plug {
 	char *newargv[16];
 	char *newenviron[16];
 
-	/* SHM for stream context sync */
-	int context_fd;
-	int context_size;
-	char *context_name;
-	void *context_addr;
+	struct plug_shm_context shm_context;
 
 	/* conf data */
 	char *device;
@@ -80,7 +71,7 @@ int sofplug_load_hook(snd_config_t *root, snd_config_t *config,
 
 int plug_parse_topology(snd_sof_plug_t *pcm);
 
-int plug_ipc_cmd(snd_sof_plug_t *pcm, void *msg, size_t len, void *reply, size_t rlen);
+int plug_ipc_cmd(struct plug_mq *ipc, void *msg, size_t len, void *reply, size_t rlen);
 
 int plug_load_widget(snd_sof_plug_t *pcm);
 
@@ -95,15 +86,13 @@ void plug_child_complete_init(snd_sof_plug_t *pcm, int capture);
 
 int plug_create_mmap_regions(snd_sof_plug_t *pcm);
 
-int plug_create_pcm_ipc_queue(snd_sof_plug_t *pcm);
+int plug_create_ipc_queue(struct plug_mq *ipc);
 
-int plug_open_ipc_queue(snd_sof_plug_t *plug);
+int plug_open_ipc_queue(struct plug_mq *ipc);
 
 int plug_create_locks(snd_sof_plug_t *pcm);
 
 void plug_add_pipe_arg(snd_sof_plug_t *pcm, const char *option, const char *arg);
-
-int plug_ipc_cmd(snd_sof_plug_t *pcm, void *msg, size_t len, void *reply, size_t rlen);
 
 int plug_check_sofpipe_status(snd_sof_plug_t *pcm);
 

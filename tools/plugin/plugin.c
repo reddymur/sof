@@ -137,7 +137,7 @@ int plug_check_sofpipe_status(snd_sof_plug_t *pcm)
 	return -EPIPE;
 }
 
-int plug_ipc_cmd(snd_sof_plug_t *pcm, void *msg, size_t len, void *reply, size_t rlen)
+int plug_ipc_cmd(struct plug_mq *ipc, void *msg, size_t len, void *reply, size_t rlen)
 {
 	struct timespec ts;
 	ssize_t ipc_size;
@@ -162,10 +162,10 @@ int plug_ipc_cmd(snd_sof_plug_t *pcm, void *msg, size_t len, void *reply, size_t
 	timespec_add_ms(&ts, 10);
 
 	/* now return message completion status */
-	err = mq_timedsend(pcm->ipc, mailbox, IPC3_MAX_MSG_SIZE, 0, &ts);
+	err = mq_timedsend(ipc->mq, mailbox, IPC3_MAX_MSG_SIZE, 0, &ts);
 	if (err < 0) {
 		SNDERR("error: can't send IPC message queue %s : %s\n",
-			pcm->ipc_queue_name, strerror(errno));
+			ipc->queue_name, strerror(errno));
 		return -errno;
 	}
 
@@ -179,10 +179,10 @@ int plug_ipc_cmd(snd_sof_plug_t *pcm, void *msg, size_t len, void *reply, size_t
 	/* IPCs should be processed under 20ms */
 	timespec_add_ms(&ts, 20);
 
-	ipc_size = mq_timedreceive(pcm->ipc, mailbox, IPC3_MAX_MSG_SIZE, NULL, &ts);
+	ipc_size = mq_timedreceive(ipc->mq, mailbox, IPC3_MAX_MSG_SIZE, NULL, &ts);
 	if (ipc_size < 0) {
 		SNDERR("error: can't read IPC message queue %s : %s\n",
-			pcm->ipc_queue_name, strerror(errno));
+			ipc->queue_name, strerror(errno));
 		return -errno;
 	}
 
@@ -207,57 +207,72 @@ void plug_add_pipe_arg(snd_sof_plug_t *pcm, const char *option, const char *arg)
 	}
 }
 
-static int create_file_names(snd_sof_plug_t *plug)
+int plug_ipc_init_queue(struct plug_mq *ipc, const char *tplg, const char *type)
 {
-	printf("plug topology name : %s\n", plug->tplg.tplg_file);
+	size_t len = strlen(tplg);
+	const char *name;
+	int i = len - 1;
+
+	/* topology name invalid */
+	if (len < 1 || type == NULL)
+		return -EINVAL;
+
+	/* find the last '/' in the topology path */
+	while (i >= 0) {
+		if (tplg[i] == '/')
+			goto found;
+	}
+
+found:
+	//sprintf
 }
 
 /*
  * IPC uses message queues for Tx/Rx mailbox and doorbell.
  * TODO: do we need non blocking MQ mode ?
  */
-int plug_create_pcm_ipc_queue(snd_sof_plug_t *plug)
+int plug_create_ipc_queue(struct plug_mq *ipc)
 {
 	int err;
 
-	create_file_names(plug);
+	//create_file_names(plug);
 
 	// TODO: get from conf/cmd line
-	plug->ipc_queue_name = "/sofipc";
+	ipc->queue_name = "/sofipc";
 
-	plug->ipc_attr.mq_msgsize = 384; /* TODO align */
-	plug->ipc_attr.mq_maxmsg = 4;
+	ipc->attr.mq_msgsize = 384; /* TODO align */
+	ipc->attr.mq_maxmsg = 4;
 
 	/* delete any stale message queues */
-	mq_unlink(plug->ipc_queue_name);
+	mq_unlink(ipc->queue_name);
 
 	/* now open new queue for Tx and Rx */
-	plug->ipc = mq_open(plug->ipc_queue_name, O_CREAT | O_RDWR | O_EXCL,
-			S_IRWXU | S_IRWXG, &plug->ipc_attr);
-	if (plug->ipc < 0) {
+	ipc->mq = mq_open(ipc->queue_name, O_CREAT | O_RDWR | O_EXCL,
+			S_IRWXU | S_IRWXG, &ipc->attr);
+	if (ipc->mq < 0) {
 		SNDERR("failed to create IPC queue %s: %s",
-				plug->ipc_queue_name, strerror(errno));
+				ipc->queue_name, strerror(errno));
 		return -errno;
 	}
 
 	/* IPC args */
-	plug_add_pipe_arg(plug, "i", plug->ipc_queue_name);
+	//plug_add_pipe_arg(plug, "i", plug->ipc_queue_name);
 
 	return 0;
 }
 
-int plug_open_ipc_queue(snd_sof_plug_t *plug)
+int plug_open_ipc_queue(struct plug_mq *ipc)
 {
 	int err;
 
 	// TODO: get from conf/cmd line
-	plug->ipc_queue_name = "/sofipc";
+	ipc->queue_name = "/sofipc";
 
 	/* now open new queue for Tx and Rx */
-	err = mq_open(plug->ipc_queue_name,  O_RDWR | O_EXCL);
+	err = mq_open(ipc->queue_name,  O_RDWR | O_EXCL);
 	if (err < 0) {
 		SNDERR("failed to create IPC queue %s: %s\n",
-			plug->ipc_queue_name, strerror(errno));
+			ipc->queue_name, strerror(errno));
 		return -errno;
 	}
 
@@ -274,44 +289,44 @@ int plug_create_mmap_regions(snd_sof_plug_t *plug)
 	int err;
 
 	// TODO: set name/size from conf
-	plug->context_name = "sofpipe_context";
-	plug->context_size = 0x1000;
+	plug->shm_context.name = "sofpipe_context";
+	plug->shm_context.size = 0x1000;
 
 	/* make sure we have a clean sham */
-	shm_unlink(plug->context_name);
+	shm_unlink(plug->shm_context.name);
 
 	/* open SHM to be used for low latency position */
-	plug->context_fd = shm_open(plug->context_name,
+	plug->shm_context.fd = shm_open(plug->shm_context.name,
 				    O_RDWR | O_CREAT,
 				    S_IRWXU | S_IRWXG);
-	if (plug->context_fd < 0) {
+	if (plug->shm_context.fd < 0) {
 		SNDERR("failed to create SHM position %s: %s",
-				plug->context_name, strerror(errno));
+				plug->shm_context.name, strerror(errno));
 		return -errno;
 	}
 
 	/* set SHM size */
-	err = ftruncate(plug->context_fd, plug->context_size);
+	err = ftruncate(plug->shm_context.fd, plug->shm_context.size);
 	if (err < 0) {
 		SNDERR("failed to truncate SHM position %s: %s",
-				plug->context_name, strerror(errno));
-		shm_unlink(plug->context_name);
+				plug->shm_context.name, strerror(errno));
+		shm_unlink(plug->shm_context.name);
 		return -errno;
 	}
 
 	/* map it locally for context readback */
-	plug->context_addr = mmap(NULL, plug->context_size,
+	plug->shm_context.addr = mmap(NULL, plug->shm_context.size,
 				  PROT_READ | PROT_WRITE,
-				  MAP_SHARED, plug->context_fd, 0);
-	if (plug->context_addr == NULL) {
+				  MAP_SHARED, plug->shm_context.fd, 0);
+	if (plug->shm_context.addr == NULL) {
 		SNDERR("failed to mmap SHM position%s: %s",
-				plug->context_name, strerror(errno));
-		shm_unlink(plug->context_name);
+				plug->shm_context.name, strerror(errno));
+		shm_unlink(plug->shm_context.name);
 		return -errno;
 	}
 
 	/* context args */
-	plug_add_pipe_arg(plug, "C", plug->context_name);
+	plug_add_pipe_arg(plug, "C", plug->shm_context.name);
 
 	return 0;
 }

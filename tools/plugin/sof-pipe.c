@@ -47,10 +47,7 @@ struct sof_pipe {
 	struct sigaction action;
 
 	/* SHM for stream context sync */
-	int context_fd;
-	int context_size;
-	char *context_name;
-	void *context_addr;
+	struct plug_shm_context shm_context;
 
 	char *ready_lock_name;
 	char *done_lock_name;
@@ -651,26 +648,26 @@ static int pipe_open_mmap_regions(struct sof_pipe *sp)
 	int err;
 
 	// TODO: set name/size from conf
-	sp->context_name = "sofpipe_context";
-	sp->context_size = 0x100;
+	sp->shm_context.name = "sofpipe_context";
+	sp->shm_context.size = 0x100;
 
 	/* open SHM to be used for low latency position */
-	sp->context_fd = shm_open(sp->context_name,
+	sp->shm_context.fd = shm_open(sp->shm_context.name,
 				    O_RDWR,
 				    S_IRWXU | S_IRWXG);
-	if (sp->context_fd < 0) {
+	if (sp->shm_context.fd < 0) {
 		fprintf(sp->log, "failed to open SHM position %s: %s\n",
-			sp->context_name, strerror(errno));
+			sp->shm_context.name, strerror(errno));
 		return -errno;
 	}
 
 	/* map it locally for context readback */
-	sp->context_addr = mmap(NULL, sp->context_size,
+	sp->shm_context.addr = mmap(NULL, sp->shm_context.size,
 				  PROT_READ | PROT_WRITE,
-				  MAP_SHARED, sp->context_fd, 0);
-	if (sp->context_addr == NULL) {
+				  MAP_SHARED, sp->shm_context.fd, 0);
+	if (sp->shm_context.addr == NULL) {
 		fprintf(sp->log, "failed to mmap SHM position%s: %s\n",
-			sp->context_name, strerror(errno));
+			sp->shm_context.name, strerror(errno));
 		return -errno;
 	}
 
@@ -685,7 +682,7 @@ static int pipe_open_mmap_regions(struct sof_pipe *sp)
  */
 static int pipe_process_playback(struct sof_pipe *sp)
 {
-	struct plug_context *ctx = sp->context_addr;
+	struct plug_context *ctx = sp->shm_context.addr;
 	struct timespec ts;
 	ssize_t bytes;
 
@@ -716,7 +713,7 @@ static int pipe_process_playback(struct sof_pipe *sp)
 
 static int pipe_process_capture(struct sof_pipe *sp)
 {
-	struct plug_context *ctx = sp->context_addr;
+	struct plug_context *ctx = sp->shm_context.addr;
 	struct timespec ts;
 	ssize_t bytes;
 

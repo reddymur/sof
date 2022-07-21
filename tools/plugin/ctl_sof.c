@@ -36,7 +36,7 @@
 typedef struct snd_sof_ctl {
 	snd_ctl_ext_t ctl[MAX_CTLS];
 	int ctl_count;
-
+	struct plug_mq ipc;
 } snd_sof_ctl_t;
 
 static int sof_update_volume(snd_sof_ctl_t *ctl)
@@ -316,7 +316,7 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 	}
 	printf("%s %d name %s\n", __func__, __LINE__, name);
 	/* open message queue for IPC */
-	err = plug_open_ipc_queue(plug);
+	err = plug_open_ipc_queue(&ctl->ipc);
 	if (err < 0) {
 		SNDERR("failed to open IPC message queue: %s", strerror(err));
 		SNDERR("The PCM needs to be open for mixers to connect to pipeline");
