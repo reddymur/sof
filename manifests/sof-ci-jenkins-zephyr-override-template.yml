@@ -1,0 +1,11 @@
+---
+# See HOWTO in sof-ci-jenkins.yml
+manifest:
+  projects:
+    # override zephyr project in west.yml
+    - name: zephyr
+      url: https://github.com/zephyrproject-rtos/zephyr
+      revision: =sof_zephyr_revision_override=
+      import:
+        name-allowlist:
+          - hal_xtensa

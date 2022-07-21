@@ -1,0 +1,24 @@
+---
+# To use this file instead of the default west.yml,
+#
+# 1. perform the following substitution:
+#
+# sed -e 's/=sof_zephyr_revision_override=/zephyr_version_to_test/' \
+#     sof-ci-jenkins-zephyr-override-template.yml \
+#   > sof-ci-jenkins-zephyr-override.yml
+#
+# where 'zephyr_version_to_test' is fetchable git version (branch, tag,
+# complete SHA1,...)
+#
+# 2. initialize your new west workspace with:
+#
+#   west init -l --mf manifests/sof-ci-jenkins.yml
+#
+manifest:
+  self:
+    import:
+      # First one in the list has precedence.
+      # We unfortunately need two .yml files because `self:` has
+      # always precedence over `projects:`.
+      - manifests/sof-ci-jenkins-zephyr-override.yml
+      - west.yml
