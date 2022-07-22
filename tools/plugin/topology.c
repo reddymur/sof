@@ -40,10 +40,9 @@
 
 #include <alsa/sound/uapi/asoc.h>
 
-static int plug_load_fileread(snd_sof_plug_t *pcm,
+static int plug_load_fileread(struct tplg_context *ctx,
 			      struct sof_ipc_comp_file *fileread)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct snd_soc_tplg_vendor_array *array = NULL;
 	size_t total_array_size = 0;
 	size_t read_size;
@@ -110,10 +109,9 @@ static int plug_load_fileread(snd_sof_plug_t *pcm,
 }
 
 /* load filewrite component */
-static int plug_load_filewrite(snd_sof_plug_t *pcm,
+static int plug_load_filewrite(struct tplg_context *ctx,
 			       struct sof_ipc_comp_file *filewrite)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct snd_soc_tplg_vendor_array *array = NULL;
 	size_t read_size;
 	size_t total_array_size = 0;
@@ -173,9 +171,8 @@ static int plug_load_filewrite(snd_sof_plug_t *pcm,
 }
 
 /* load fileread component */
-static int load_fileread(snd_sof_plug_t *pcm, int dir)
+static int load_fileread(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl, int dir)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	FILE *file = ctx->file;
 	struct sof_ipc_comp_file fileread = {0};
 	struct sof_ipc_comp_reply reply = {0};
@@ -183,7 +180,7 @@ static int load_fileread(snd_sof_plug_t *pcm, int dir)
 
 	//fileread.config.frame_fmt = find_format(tp->bits_in);
 
-	ret = plug_load_fileread(pcm, &fileread);
+	ret = plug_load_fileread(ctx, &fileread);
 	if (ret < 0)
 		return ret;
 
@@ -211,7 +208,7 @@ static int load_fileread(snd_sof_plug_t *pcm, int dir)
 	fileread.comp.type = (dir == SOF_IPC_STREAM_PLAYBACK) ?
 		SOF_COMP_HOST : SOF_COMP_DAI;
 
-	ret = plug_ipc_cmd(pcm, &fileread, sizeof(fileread), &reply, sizeof(reply));
+	ret = plug_ipc_cmd(ipc, &fileread, sizeof(fileread), &reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
 	}
@@ -221,16 +218,15 @@ static int load_fileread(snd_sof_plug_t *pcm, int dir)
 }
 
 /* load filewrite component */
-static int load_filewrite(snd_sof_plug_t *pcm, int dir)
+static int load_filewrite(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl, int dir)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct sof *sof = ctx->sof;
 	FILE *file = ctx->file;
 	struct sof_ipc_comp_file filewrite = {0};
 	struct sof_ipc_comp_reply reply = {0};
 	int ret;
 
-	ret = plug_load_filewrite(pcm, &filewrite);
+	ret = plug_load_filewrite(ctx, &filewrite);
 	if (ret < 0)
 		return ret;
 
@@ -260,7 +256,7 @@ static int load_filewrite(snd_sof_plug_t *pcm, int dir)
 	filewrite.comp.type = (dir == SOF_IPC_STREAM_PLAYBACK) ?
 		SOF_COMP_DAI : SOF_COMP_HOST;
 
-	ret = plug_ipc_cmd(pcm, &filewrite, sizeof(filewrite),
+	ret = plug_ipc_cmd(ipc, &filewrite, sizeof(filewrite),
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
@@ -270,20 +266,20 @@ static int load_filewrite(snd_sof_plug_t *pcm, int dir)
 	return ret;
 }
 
-static int plug_aif_in_out(snd_sof_plug_t *pcm, int dir)
+static int plug_aif_in_out(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl, int dir)
 {
 	if (dir == SOF_IPC_STREAM_PLAYBACK)
-		return load_fileread(pcm, dir);
+		return load_fileread(ctx, ipc, ctl, dir);
 	else
-		return load_filewrite(pcm, dir);
+		return load_filewrite(ctx, ipc, ctl, dir);
 }
 
-static int plug_dai_in_out(snd_sof_plug_t *pcm, int dir)
+static int plug_dai_in_out(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl, int dir)
 {
 	if (dir == SOF_IPC_STREAM_PLAYBACK)
-		return load_filewrite(pcm, dir);
+		return load_filewrite(ctx, ipc, ctl, dir);
 	else
-		return load_fileread(pcm, dir);
+		return load_fileread(ctx, ipc, ctl, dir);
 }
 
 static int get_next_hdr(struct tplg_context *ctx, struct snd_soc_tplg_hdr *hdr,
@@ -301,229 +297,210 @@ static int get_next_hdr(struct tplg_context *ctx, struct snd_soc_tplg_hdr *hdr,
 	return 1;
 }
 
-static const snd_ctl_ext_callback_t sof_ext_callback = {
-#if 0
-	.elem_count = plug_ctl_elem_count,
-	.elem_list = plug_ctl_elem_list,
-	.find_elem = plug_ctl_find_elem,
-	.get_attribute = plug_ctl_get_attribute,
-	.get_integer_info = plug_ctl_get_integer_info,
-	.read_integer = plug_ctl_read_integer,
-	.write_integer = plug_ctl_write_integer,
-	.subscribe_events = plug_ctl_subscribe_events,
-	.read_event = plug_ctl_read_event,
-	.poll_revents = plug_ctl_poll_revents,
-	.close = plug_ctl_close,
-#endif
-};
-
-static int plug_ctl_create(snd_sof_plug_t *pcm)
+static int plug_ctl_init(struct plug_ctl *ctls, struct snd_soc_tplg_ctl_hdr *tplg_ctl)
 {
-	snd_ctl_ext_t *ctl;
-	int err;
+	struct snd_soc_tplg_ctl_hdr *_tplg_ctl;
 
-	ctl = calloc(1, sizeof(*ctl));
-	if (!ctl)
-		return -ENOMEM;
-
-	ctl->version = SND_CTL_EXT_VERSION;
-	ctl->card_idx = 0;
-	strncpy(ctl->id, "sof", sizeof(ctl->id) - 1);
-	strncpy(ctl->driver, "SOF plugin",
-		sizeof(ctl->driver) - 1);
-	strncpy(ctl->name, "SOF", sizeof(ctl->name) - 1);
-	strncpy(ctl->longname, "SOF",
-		sizeof(ctl->longname) - 1);
-	strncpy(ctl->mixername, "SOF",
-		sizeof(ctl->mixername) - 1);
-	//ctl->poll_fd = ctl->p->main_fd;
-	ctl->callback = &sof_ext_callback;
-	ctl->private_data = pcm;
-
-	err = snd_ctl_ext_create(ctl, "testsof", 0666);
-	if (err < 0) {
-		SNDERR("error: can't create CTL\n");
-		return err;
+	if (ctls->count >= MAX_CTLS) {
+		SNDERR("error: ctoo many CTLs in topology\n");
+		return -EINVAL;
 	}
+
+	_tplg_ctl = &ctls->tplg[ctls->count];
+	*_tplg_ctl = *tplg_ctl;
+	ctls->count++;
 
 	return 0;
 }
 
-static int plug_new_pga_ipc(snd_sof_plug_t *pcm)
+static int plug_new_pga_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_volume volume = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr ctl;
+	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int ret;
 
-	ret = tplg_new_pga(ctx, &volume, &ctl);
+	ret = tplg_new_pga(ctx, &volume, &tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create PGA\n");
 		goto out;
 	}
-	ret = plug_ipc_cmd(pcm, &volume, sizeof(volume),
+	ret = plug_ipc_cmd(ipc, &volume, sizeof(volume),
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
 		return ret;
 	}
 
-	plug_ctl_create(pcm);
+	if (ctl)
+		ret = plug_ctl_init(ctl, &tplg_ctl);
+
 out:
 	return ret;
 }
 
-static int plug_new_mixer_ipc(snd_sof_plug_t *pcm)
+static int plug_new_mixer_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_mixer mixer = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr ctl;
+	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int ret;
 
-	ret = tplg_new_mixer(ctx, &mixer, &ctl);
+	ret = tplg_new_mixer(ctx, &mixer, &tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create mixer\n");
 		goto out;
 	}
-	ret = plug_ipc_cmd(pcm, &mixer, sizeof(mixer),
+	ret = plug_ipc_cmd(ipc, &mixer, sizeof(mixer),
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
 		return ret;
 	}
 
+	if (ctl)
+		ret = plug_ctl_init(ctl, &tplg_ctl);
+
 out:
 	return ret;
 }
 
-static int plug_new_src_ipc(snd_sof_plug_t *pcm)
+static int plug_new_src_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_src src = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr ctl;
+	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int ret;
 
-	ret = tplg_new_src(ctx, &src, &ctl);
+	ret = tplg_new_src(ctx, &src, &tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create src\n");
 		goto out;
 	}
-	ret = plug_ipc_cmd(pcm, &src, sizeof(src),
+	ret = plug_ipc_cmd(ipc, &src, sizeof(src),
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
 		return ret;
 	}
 
+	if (ctl)
+		ret = plug_ctl_init(ctl, &tplg_ctl);
+
 out:
 	return ret;
 }
 
-static int plug_new_asrc_ipc(snd_sof_plug_t *pcm)
+static int plug_new_asrc_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_asrc asrc = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr ctl;
+	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int ret;
 
-	ret = tplg_new_asrc(ctx, &asrc, &ctl);
+	ret = tplg_new_asrc(ctx, &asrc, &tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create PGA\n");
 		goto out;
 	}
-	ret = plug_ipc_cmd(pcm, &asrc, sizeof(asrc),
+	ret = plug_ipc_cmd(ipc, &asrc, sizeof(asrc),
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
 		return ret;
 	}
 
+	if (ctl)
+		ret = plug_ctl_init(ctl, &tplg_ctl);
+
 out:
 	return ret;
 }
 
-static int plug_new_process_ipc(snd_sof_plug_t *pcm)
+static int plug_new_process_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_comp_process process = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr ctl;
+	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int ret;
 
-	ret = tplg_new_process(ctx, &process, &ctl);
+	ret = tplg_new_process(ctx, &process, &tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create PGA\n");
 		goto out;
 	}
-	ret = plug_ipc_cmd(pcm,  &process, sizeof(process),
+	ret = plug_ipc_cmd(ipc,  &process, sizeof(process),
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
 		return ret;
 	}
 
+	if (ctl)
+		ret = plug_ctl_init(ctl, &tplg_ctl);
+
 out:
 	return ret;
 }
 
-static int plug_new_pipeline_ipc(snd_sof_plug_t *pcm)
+static int plug_new_pipeline_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_pipe_new pipeline = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr ctl;
+	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int ret;
 
-	ret = tplg_new_pipeline(ctx, &pipeline, &ctl);
+	ret = tplg_new_pipeline(ctx, &pipeline, &tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create pipeline\n");
 		goto out;
 	}
-	ret = plug_ipc_cmd(pcm, &pipeline, sizeof(pipeline),
+	ret = plug_ipc_cmd(ipc, &pipeline, sizeof(pipeline),
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
 		return ret;
 	}
+
+	if (ctl)
+		ret = plug_ctl_init(ctl, &tplg_ctl);
 
 out:
 	return ret;
 }
 
-static int plug_new_buffer_ipc(snd_sof_plug_t *pcm)
+static int plug_new_buffer_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
+				struct plug_ctl *ctl)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct sof_ipc_buffer buffer = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr ctl;
+	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int ret;
 
-	ret = tplg_new_buffer(ctx, &buffer, &ctl);
+	ret = tplg_new_buffer(ctx, &buffer, &tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create pipeline\n");
 		goto out;
 	}
-	ret = plug_ipc_cmd(pcm, &buffer, sizeof(buffer),
+	ret = plug_ipc_cmd(ipc, &buffer, sizeof(buffer),
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
 		return ret;
 	}
+
+	if (ctl)
+		ret = plug_ctl_init(ctl, &tplg_ctl);
 
 out:
 	return ret;
 }
 
 /* load dapm widget */
-int plug_load_widget(snd_sof_plug_t *pcm)
+int plug_load_widget(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
 {
-	struct tplg_context *ctx = &pcm->tplg;
 	struct comp_info *temp_comp_list = ctx->info;
-	struct snd_soc_tplg_ctl_hdr ctl;
+	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int comp_index = ctx->info_index;
 	int comp_id = ctx->comp_id;
 	int ret = 0;
@@ -567,35 +544,35 @@ int plug_load_widget(snd_sof_plug_t *pcm)
 
 	/* load pga widget */
 	case SND_SOC_TPLG_DAPM_PGA:
-		if (plug_new_pga_ipc(pcm) < 0) {
+		if (plug_new_pga_ipc(ctx, ipc, ctl) < 0) {
 			fprintf(stderr, "error: load pga\n");
 			ret = -EINVAL;
 			goto exit;
 		}
 		break;
 	case SND_SOC_TPLG_DAPM_AIF_IN:
-		if (plug_aif_in_out(pcm, SOF_IPC_STREAM_PLAYBACK) < 0) {
+		if (plug_aif_in_out(ctx, ipc, ctl, SOF_IPC_STREAM_PLAYBACK) < 0) {
 			fprintf(stderr, "error: load AIF IN failed\n");
 			ret = -EINVAL;
 			goto exit;
 		}
 		break;
 	case SND_SOC_TPLG_DAPM_AIF_OUT:
-		if (plug_aif_in_out(pcm, SOF_IPC_STREAM_CAPTURE) < 0) {
+		if (plug_aif_in_out(ctx, ipc, ctl, SOF_IPC_STREAM_CAPTURE) < 0) {
 			fprintf(stderr, "error: load AIF OUT failed\n");
 			ret = -EINVAL;
 			goto exit;
 		}
 		break;
 	case SND_SOC_TPLG_DAPM_DAI_IN:
-		if (plug_dai_in_out(pcm, SOF_IPC_STREAM_PLAYBACK) < 0) {
+		if (plug_dai_in_out(ctx, ipc, ctl, SOF_IPC_STREAM_PLAYBACK) < 0) {
 			fprintf(stderr, "error: load filewrite\n");
 			ret = -EINVAL;
 			goto exit;
 		}
 		break;
 	case SND_SOC_TPLG_DAPM_DAI_OUT:
-		if (plug_dai_in_out(pcm, SOF_IPC_STREAM_CAPTURE) < 0) {
+		if (plug_dai_in_out(ctx, ipc, ctl, SOF_IPC_STREAM_CAPTURE) < 0) {
 			fprintf(stderr, "error: load filewrite\n");
 			ret = -EINVAL;
 			goto exit;
@@ -603,7 +580,7 @@ int plug_load_widget(snd_sof_plug_t *pcm)
 		break;
 
 	case SND_SOC_TPLG_DAPM_BUFFER:
-		if (plug_new_buffer_ipc(pcm) < 0) {
+		if (plug_new_buffer_ipc(ctx, ipc, ctl) < 0) {
 			fprintf(stderr, "error: load pipeline\n");
 			ret = -EINVAL;
 			goto exit;
@@ -611,21 +588,21 @@ int plug_load_widget(snd_sof_plug_t *pcm)
 		break;
 
 	case SND_SOC_TPLG_DAPM_SCHEDULER:
-		if (plug_new_pipeline_ipc(pcm) < 0) {
+		if (plug_new_pipeline_ipc(ctx, ipc, ctl) < 0) {
 			fprintf(stderr, "error: load pipeline\n");
 			ret = -EINVAL;
 			goto exit;
 		}
 		break;
 	case SND_SOC_TPLG_DAPM_SRC:
-		if (plug_new_src_ipc(pcm) < 0) {
+		if (plug_new_src_ipc(ctx, ipc, ctl) < 0) {
 			fprintf(stderr, "error: load src\n");
 			ret = -EINVAL;
 			goto exit;
 		}
 		break;
 	case SND_SOC_TPLG_DAPM_ASRC:
-		if (plug_new_asrc_ipc(pcm) < 0) {
+		if (plug_new_asrc_ipc(ctx, ipc, ctl) < 0) {
 			fprintf(stderr, "error: load asrc\n");
 			ret = -EINVAL;
 			goto exit;
@@ -633,14 +610,14 @@ int plug_load_widget(snd_sof_plug_t *pcm)
 		break;
 
 	case SND_SOC_TPLG_DAPM_MIXER:
-		if (plug_new_mixer_ipc(pcm) < 0) {
+		if (plug_new_mixer_ipc(ctx, ipc, ctl) < 0) {
 			fprintf(stderr, "error: load mixer\n");
 			ret = -EINVAL;
 			goto exit;
 		}
 		break;
 	case SND_SOC_TPLG_DAPM_EFFECT:
-		if (plug_new_process_ipc(pcm) < 0) {
+		if (plug_new_process_ipc(ctx, ipc, ctl) < 0) {
 			fprintf(stderr, "error: load effect\n");
 			ret = -EINVAL;
 			goto exit;
@@ -678,7 +655,8 @@ enum sof_ipc_dai_type find_dai(const char *string)
 	return 0;
 }
 
-int plug_register_graph(snd_sof_plug_t *pcm, struct comp_info *temp_comp_list,
+int plug_register_graph(struct tplg_context *ctx, struct plug_mq *ipc,
+			struct comp_info *temp_comp_list,
 			char *pipeline_string, FILE *file,
 			int count, int num_comps, int pipeline_id)
 {
@@ -695,7 +673,7 @@ int plug_register_graph(snd_sof_plug_t *pcm, struct comp_info *temp_comp_list,
 		if (ret < 0)
 			return ret;
 
-		ret = plug_ipc_cmd(pcm, &connection, sizeof(connection),
+		ret = plug_ipc_cmd(ipc, &connection, sizeof(connection),
 				&reply, sizeof(reply));
 		if (ret < 0) {
 			SNDERR("error: can't connect\n");
@@ -708,10 +686,10 @@ int plug_register_graph(snd_sof_plug_t *pcm, struct comp_info *temp_comp_list,
 		if (temp_comp_list[i].pipeline_id == pipeline_id &&
 		    temp_comp_list[i].type == SND_SOC_TPLG_DAPM_SCHEDULER) {
 
-			ret = plug_ipc_cmd(pcm, &ready, sizeof(ready),
+			ret = plug_ipc_cmd(ipc, &ready, sizeof(ready),
 					&reply, sizeof(reply));
 			if (ret < 0) {
-				SNDERR("error: can't comlplete pipeline\n");
+				SNDERR("error: can't complete pipeline\n");
 				return ret;
 			}
 			//ipc_pipeline_complete(sof->ipc, temp_comp_list[i].id);
@@ -722,10 +700,9 @@ int plug_register_graph(snd_sof_plug_t *pcm, struct comp_info *temp_comp_list,
 }
 
 /* parse topology file and set up pipeline */
-int plug_parse_topology(snd_sof_plug_t *pcm)
+int plug_parse_topology(struct tplg_context *ctx, struct plug_mq *ipc,
+			struct plug_ctl *ctl, int pipeline_num)
 {
-	struct tplg_context *ctx = &pcm->tplg;
-	int pipeline_num = pcm->tplg.pipeline_id;
 	struct snd_soc_tplg_hdr *hdr;
 	struct comp_info *comp_list_realloc = NULL;
 	char pipeline_string[256] = {0};
@@ -822,7 +799,7 @@ int plug_parse_topology(snd_sof_plug_t *pcm)
 			for (ctx->info_index = (ctx->info_elems - hdr->count);
 			     ctx->info_index < ctx->info_elems;
 			     ctx->info_index++) {
-				ret = plug_load_widget(pcm);
+				ret = plug_load_widget(ctx, ipc, ctl);
 				if (ret < 0) {
 					printf("error: loading widget\n");
 					goto finish;
@@ -834,7 +811,7 @@ int plug_parse_topology(snd_sof_plug_t *pcm)
 		/* set up component connections from pipeline graph */
 		case SND_SOC_TPLG_TYPE_DAPM_GRAPH:
 			printf("%s %d\n", __func__, __LINE__);
-			if (plug_register_graph(pcm, ctx->info,
+			if (plug_register_graph(ctx, ipc, ctx->info,
 						pipeline_string,
 						ctx->file, hdr->count,
 						ctx->comp_id,
@@ -858,10 +835,8 @@ int plug_parse_topology(snd_sof_plug_t *pcm)
 		}
 	}
 finish:
-printf("%s %d\n", __func__, __LINE__);
 
 out:
-printf("%s %d\n", __func__, __LINE__);
 	/* free all data */
 	free(hdr);
 

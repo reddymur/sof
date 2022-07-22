@@ -11,7 +11,9 @@
 #include <alsa/asoundlib.h>
 
 #define IPC3_MAX_MSG_SIZE	384
-#define NAME_SIZE	28
+#define NAME_SIZE	128
+
+#define MAX_CTLS	256
 
 #define MS_TO_US(_msus)	(_msus * 1000)
 #define MS_TO_NS(_msns) (MS_TO_US(_msns * 1000))
@@ -45,7 +47,7 @@ struct plug_mq {
 	/* IPC message queue */
 	mqd_t mq;
 	struct mq_attr attr;
-	const char queue_name[NAME_SIZE];
+	char queue_name[NAME_SIZE];
 };
 
 #endif

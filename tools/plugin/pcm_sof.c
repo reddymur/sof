@@ -670,10 +670,11 @@ static int plug_pcm_create_mmap_regions(snd_sof_plug_t *plug)
 int plug_parent_complete_init(snd_sof_plug_t *plug, snd_pcm_t **pcmp,
 		  	  	     const char *name, snd_pcm_stream_t stream, int mode)
 {
+	snd_sof_pcm_t *pcm = plug->module_prv;
 	int err;
 
 	/* load the topology TDOD: add pipeline ID*/
-	err = plug_parse_topology(plug);
+	err = plug_parse_topology(&plug->tplg, &pcm->ipc, NULL, plug->tplg.pipeline_id);
 	if (err < 0) {
 		SNDERR("failed to parse topology: %s", strerror(err));
 		return err;
@@ -727,7 +728,12 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 		goto pipe_error;
 
 	/* create message queue for IPC */
-	err = plug_create_ipc_queue(plug);
+	err = plug_ipc_init_queue(&pcm->ipc, plug->tplg.tplg_file, "pcm");
+	if (err < 0)
+		goto ipc_error;
+
+	plug_add_pipe_arg(plug, "i", pcm->ipc.queue_name);
+	err = plug_create_ipc_queue(&pcm->ipc);
 	if (err < 0)
 		goto ipc_error;
 

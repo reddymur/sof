@@ -21,21 +21,21 @@
 #include <errno.h>
 
 #include <alsa/asoundlib.h>
-#include <alsa/control_external.h>
 
 #include <sof/sof.h>
 #include <sof/audio/pipeline.h>
 #include <sof/audio/component.h>
 #include <ipc/stream.h>
 #include <tplg_parser/topology.h>
+#include <alsa/control_external.h>
 
 #include "plugin.h"
 
-#define MAX_CTLS	256
+
 
 typedef struct snd_sof_ctl {
-	snd_ctl_ext_t ctl[MAX_CTLS];
-	int ctl_count;
+	struct plug_ctl ctls;
+	snd_ctl_ext_t ext_ctl;
 	struct plug_mq ipc;
 } snd_sof_ctl_t;
 

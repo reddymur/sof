@@ -211,20 +211,28 @@ int plug_ipc_init_queue(struct plug_mq *ipc, const char *tplg, const char *type)
 {
 	size_t len = strlen(tplg);
 	const char *name;
-	int i = len - 1;
+	int i = len;
 
 	/* topology name invalid */
-	if (len < 1 || type == NULL)
+	if (len < 1 || type == NULL) {
+		SNDERR("invalid topology name or type\n");
 		return -EINVAL;
-
-	/* find the last '/' in the topology path */
-	while (i >= 0) {
-		if (tplg[i] == '/')
-			goto found;
 	}
 
+	/* find the last '/' in the topology path */
+	while (--i >= 0) {
+		if (tplg[i] == '/') {
+			i += 1; /* skip / */
+			goto found;
+		}
+	}
+
+	/* no / in topology path, so use full path */
+	i = 0;
+
 found:
-	//sprintf
+	snprintf(ipc->queue_name, NAME_SIZE, "/mq-%s-%s", type, tplg + i);
+	return 0;
 }
 
 /*
@@ -235,12 +243,7 @@ int plug_create_ipc_queue(struct plug_mq *ipc)
 {
 	int err;
 
-	//create_file_names(plug);
-
-	// TODO: get from conf/cmd line
-	ipc->queue_name = "/sofipc";
-
-	ipc->attr.mq_msgsize = 384; /* TODO align */
+	ipc->attr.mq_msgsize = IPC3_MAX_MSG_SIZE;
 	ipc->attr.mq_maxmsg = 4;
 
 	/* delete any stale message queues */
@@ -255,18 +258,12 @@ int plug_create_ipc_queue(struct plug_mq *ipc)
 		return -errno;
 	}
 
-	/* IPC args */
-	//plug_add_pipe_arg(plug, "i", plug->ipc_queue_name);
-
 	return 0;
 }
 
 int plug_open_ipc_queue(struct plug_mq *ipc)
 {
 	int err;
-
-	// TODO: get from conf/cmd line
-	ipc->queue_name = "/sofipc";
 
 	/* now open new queue for Tx and Rx */
 	err = mq_open(ipc->queue_name,  O_RDWR | O_EXCL);

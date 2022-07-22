@@ -31,6 +31,7 @@
 #include <sof/audio/component.h>
 #include <ipc/stream.h>
 #include <tplg_parser/topology.h>
+#include <tplg_parser/tokens.h>
 
 #include <alsa/asoundlib.h>
 
@@ -65,17 +66,24 @@ typedef struct snd_sof_plug {
 	void *module_prv;	/* module private data */
 } snd_sof_plug_t;
 
+struct plug_ctl {
+	struct snd_soc_tplg_ctl_hdr tplg[MAX_CTLS];
+	int count;
+};
+
 
 int sofplug_load_hook(snd_config_t *root, snd_config_t *config,
 		      snd_config_t **dst, snd_config_t *private_data);
 
-int plug_parse_topology(snd_sof_plug_t *pcm);
+int plug_parse_topology(struct tplg_context *ctx, struct plug_mq *ipc,
+			struct plug_ctl *ctl, int pipeline_num);
 
 int plug_ipc_cmd(struct plug_mq *ipc, void *msg, size_t len, void *reply, size_t rlen);
 
-int plug_load_widget(snd_sof_plug_t *pcm);
+int plug_load_widget(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl);
 
-int plug_register_graph(snd_sof_plug_t *pcm, struct comp_info *temp_comp_list,
+int plug_register_graph(struct tplg_context *ctx, struct plug_mq *ipc,
+			struct comp_info *temp_comp_list,
 			char *pipeline_string, FILE *file,
 			int count, int num_comps, int pipeline_id);
 
@@ -89,6 +97,8 @@ int plug_create_mmap_regions(snd_sof_plug_t *pcm);
 int plug_create_ipc_queue(struct plug_mq *ipc);
 
 int plug_open_ipc_queue(struct plug_mq *ipc);
+
+int plug_ipc_init_queue(struct plug_mq *ipc, const char *tplg, const char *type);
 
 int plug_create_locks(snd_sof_plug_t *pcm);
 
