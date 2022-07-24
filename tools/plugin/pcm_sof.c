@@ -682,6 +682,17 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 		goto pipe_error;
 	}
 
+	/* context args */
+	plug_add_pipe_arg(plug, "t", plug->tplg.tplg_file);
+
+	/* create message queue for IPC */
+	err = plug_ipc_init_lock(&pcm->ipc, plug->tplg.tplg_file, "ready");
+	if (err < 0)
+		goto ipc_error;
+	err = plug_ipc_init_lock(&pcm->ipc, plug->tplg.tplg_file, "done");
+	if (err < 0)
+		goto ipc_error;
+
 	/* create pipe for audio data - TODO support mmap() */
 	err = plug_ipc_open_lock(&pcm->ready);
 	if (err < 0)
@@ -690,18 +701,11 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 	if (err < 0)
 		goto pipe_error;
 
-	/* ready lock args */
-		plug_add_pipe_arg(plug, "r", pcm->ready.name);
-
-		/* done lock args */
-		plug_add_pipe_arg(plug, "d", pcm->done.name);
-
 	/* create message queue for IPC */
 	err = plug_ipc_init_queue(&pcm->ipc, plug->tplg.tplg_file, "pcm");
 	if (err < 0)
 		goto ipc_error;
 
-	plug_add_pipe_arg(plug, "i", pcm->ipc.queue_name);
 	err = plug_open_ipc_queue(&pcm->ipc);
 	if (err < 0)
 		goto ipc_error;
@@ -715,9 +719,6 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 	err = plug_ipc_init_shm(&pcm->shm_ctx, plug->tplg.tplg_file, "pcm");
 	if (err < 0)
 		goto ipc_error;
-
-	/* context args */
-	plug_add_pipe_arg(plug, "C", pcm->shm_ctx.name);
 
 	err = plug_open_mmap_regions(&pcm->shm_ctx);
 	if (err < 0)

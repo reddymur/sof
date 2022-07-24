@@ -35,7 +35,6 @@
 struct sof_pipe {
 	const char *alsa_name;
 	char topology_name[NAME_SIZE];
-	int io_pipe_fd;
 	int realtime;
 	int use_P_core;
 	int use_E_core;
@@ -52,12 +51,13 @@ struct sof_pipe {
 	struct plug_lock ready;
 	struct plug_lock done;
 
-	struct plug_mq pcm;
-	struct plug_mq ctl;
+	struct plug_mq pcm_ipc;
+	struct plug_mq ctl_ipc;
 
 	FILE *log;
 
-	pthread_t ipc_thread;
+	pthread_t ipc_pcm_thread;
+	pthread_t ipc_ctl_thread;
 };
 
 
@@ -222,10 +222,10 @@ static void *pipe_ipc_thread(void *arg)
 		fprintf(stderr, "error: cant set IPC thread to low priority");
 
 	/* open the IPC message queue */
-	sp->ipc = mq_open(sp->ipc_msg_queue, O_RDWR);
+	err = plug_create_ipc_queue(&sp->pcm_ipc);
 	if (err < 0) {
-		fprintf(sp->log, "error: can't open IPC message queue %s : %s\n",
-			sp->ipc_msg_queue, strerror(errno));
+		fprintf(sp->log, "error: can't open PCM IPC message queue : %s\n",
+				strerror(errno));
 		return NULL;
 	}
 
@@ -235,18 +235,18 @@ static void *pipe_ipc_thread(void *arg)
 		ipc_size = mq_receive(sp->ipc, mailbox, 384, NULL);
 		if (err < 0) {
 			fprintf(sp->log, "error: can't read IPC message queue %s : %s\n",
-				sp->ipc_msg_queue, strerror(errno));
+				sp->pcm_ipc.queue_name, strerror(errno));
 			break;
 		}
 
 		/* do the message work */
-		printf("got IPC %ld bytes: %s\n", ipc_size, mailbox);
+		printf("got IPC %ld bytes from PCM: %s\n", ipc_size, mailbox);
 
 		/* now return message completion status */
 		err = mq_send(sp->ipc, mailbox, 384, 0);
 		if (err < 0) {
 			fprintf(sp->log, "error: can't send IPC message queue %s : %s\n",
-				sp->ipc_msg_queue, strerror(errno));
+				sp->pcm_ipc.queue_name, strerror(errno));
 			break;
 		}
 	}
@@ -300,23 +300,6 @@ static int pipe_set_rt(struct sof_pipe *sp)
 	} else {
 		fprintf(sp->log, "error: no elevated privileges for RT. uid %d euid %d\n",
 			uid, euid);
-	}
-
-	return 0;
-}
-
-
-
-static int pipe_open_ipc_queue(struct sof_pipe *sp)
-{
-	int err;
-
-	/* now open new queue for Tx and Rx */
-	err = mq_open(sp->ipc_msg_queue,  O_RDWR | O_EXCL);
-	if (err < 0) {
-		fprintf(sp->log, "failed to create IPC queue %s: %s\n",
-			sp->ipc_msg_queue, strerror(errno));
-		return -errno;
 	}
 
 	return 0;
@@ -445,9 +428,6 @@ int main(int argc, char *argv[], char *env[])
 		}
 	}
 
-	// TODO: get from conf/cmd line
-	sp.ipc_msg_queue = "/sofipc";
-
 	/* validate cmd line params */
 	if (strlen(sp.ready.name) == 0) {
 		fprintf(stderr, "error: no data READY lock specified using -r\n");
@@ -457,6 +437,23 @@ int main(int argc, char *argv[], char *env[])
 		fprintf(stderr, "error: no data DONE lock specified using -d\n");
 		exit(EXIT_FAILURE);
 	}
+
+	/* initialise IPC data */
+	ret = plug_ipc_init_queue(&sp.pcm_ipc, sp.topology_name, "pcm");
+	if (ret < 0)
+		goto out;
+	ret = plug_ipc_init_queue(&sp.ctl_ipc, sp.topology_name, "ctl");
+	if (ret < 0)
+		goto out;
+	ret = plug_ipc_init_shm(&sp.shm_context, sp.topology_name, "pcm");
+	if (ret < 0)
+		goto out;
+	ret = plug_ipc_init_lock(&sp.ready, sp.topology_name, "ready");
+	if (ret < 0)
+		goto out;
+	ret = plug_ipc_init_lock(&sp.done, sp.topology_name, "done");
+	if (ret)
+		goto out;
 
 #if 0
 	/* turn on logging */
@@ -480,7 +477,7 @@ int main(int argc, char *argv[], char *env[])
 	}
 
 	/* start IPC thread */
-	ret = pthread_create(&sp.ipc_thread, NULL, &pipe_ipc_thread, &sp);
+	ret = pthread_create(&sp.ipc_pcm_thread, NULL, &pipe_ipc_thread, &sp);
 	if (ret < 0) {
 		fprintf(stderr, "failed to create IPC thread: %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
@@ -495,16 +492,6 @@ int main(int argc, char *argv[], char *env[])
 
 	/* mmap context */
 	ret = plug_create_mmap_regions(&sp.shm_context);
-	if (ret < 0)
-		goto out;
-
-	/* open IPC message queue */
-	ret = plug_create_ipc_queue(&sp.pcm);
-	if (ret < 0)
-		goto out;
-
-	/* open IPC message queue */
-	ret = plug_create_ipc_queue(&sp.ctl);
 	if (ret < 0)
 		goto out;
 
