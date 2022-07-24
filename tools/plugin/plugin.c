@@ -207,31 +207,37 @@ void plug_add_pipe_arg(snd_sof_plug_t *pcm, const char *option, const char *arg)
 	}
 }
 
-int plug_ipc_init_queue(struct plug_mq *ipc, const char *tplg, const char *type)
+static const char *suffix_name(const char *longname)
 {
-	size_t len = strlen(tplg);
-	const char *name;
+	size_t len = strlen(longname);
 	int i = len;
 
-	/* topology name invalid */
-	if (len < 1 || type == NULL) {
-		SNDERR("invalid topology name or type\n");
-		return -EINVAL;
+	/* longname name invalid */
+	if (len < 1 ) {
+		SNDERR("invalid topology long name\n");
+		return NULL;
 	}
 
-	/* find the last '/' in the topology path */
+	/* find the last '/' in the longname topology path */
 	while (--i >= 0) {
-		if (tplg[i] == '/') {
+		if (longname[i] == '/') {
 			i += 1; /* skip / */
-			goto found;
+			return &longname[i];
 		}
 	}
 
 	/* no / in topology path, so use full path */
-	i = 0;
+	return longname;
+}
 
-found:
-	snprintf(ipc->queue_name, NAME_SIZE, "/mq-%s-%s", type, tplg + i);
+int plug_ipc_init_queue(struct plug_mq *ipc, const char *tplg, const char *type)
+{
+	const char *name = suffix_name(tplg);
+
+	if (!name)
+		return -EINVAL;
+
+	snprintf(ipc->queue_name, NAME_SIZE, "/mq-%s-%s", type, name);
 	return 0;
 }
 
@@ -276,54 +282,129 @@ int plug_open_ipc_queue(struct plug_mq *ipc)
 	return 0;
 }
 
+int plug_ipc_init_lock(struct plug_lock *lock, const char *tplg, const char *type)
+{
+	const char *name = suffix_name(tplg);
+
+	if (!name)
+		return -EINVAL;
+
+	snprintf(lock->name, NAME_SIZE, "/lock-%s-%s", name, type);
+	return 0;
+}
+
+int plug_ipc_open_lock(struct plug_lock *lock)
+{
+	lock->sem = sem_open(lock->name, O_RDWR);
+	if (lock->sem == SEM_FAILED) {
+		SNDERR("failed to open semaphore %s: %s\n",
+				lock->name, strerror(errno));
+		return -errno;
+	}
+
+	return 0;
+}
+
+/*
+ * Pipe is used to transfer audio data in R/W mode (not mmap)
+ */
+int plug_ipc_create_lock(struct plug_lock *lock)
+{
+	/* RW blocking lock */
+	sem_unlink(lock->name);
+	lock->sem = sem_open(lock->name,
+				O_CREAT | O_RDWR | O_EXCL,
+				SEM_PERMS, 1);
+	if (lock->sem == SEM_FAILED) {
+		SNDERR("failed to create semaphore %s: %s",
+			lock->name, strerror(errno));
+		return -errno;
+	}
+
+	return 0;
+}
+
+int plug_ipc_init_shm(struct plug_shm_context *shm, const char *tplg, const char *type)
+{
+	const char *name = suffix_name(tplg);
+
+	if (!name)
+		return -EINVAL;
+
+	snprintf(shm->name, NAME_SIZE, "/shm-%s-%s", name, type);
+	shm->size = SHM_SIZE;
+	return 0;
+}
+
 /*
  * IPC uses message queues for Tx/Rx mailbox and doorbell.
  * TODO: set shm name
  */
-int plug_create_mmap_regions(snd_sof_plug_t *plug)
+int plug_create_mmap_regions(struct plug_shm_context *shm)
 {
 	void *addr;
 	int err;
 
-	// TODO: set name/size from conf
-	plug->shm_context.name = "sofpipe_context";
-	plug->shm_context.size = 0x1000;
-
 	/* make sure we have a clean sham */
-	shm_unlink(plug->shm_context.name);
+	shm_unlink(shm->name);
 
 	/* open SHM to be used for low latency position */
-	plug->shm_context.fd = shm_open(plug->shm_context.name,
+	shm->fd = shm_open(shm->name,
 				    O_RDWR | O_CREAT,
 				    S_IRWXU | S_IRWXG);
-	if (plug->shm_context.fd < 0) {
+	if (shm->fd < 0) {
 		SNDERR("failed to create SHM position %s: %s",
-				plug->shm_context.name, strerror(errno));
+				shm->name, strerror(errno));
 		return -errno;
 	}
 
 	/* set SHM size */
-	err = ftruncate(plug->shm_context.fd, plug->shm_context.size);
+	err = ftruncate(shm->fd, shm->size);
 	if (err < 0) {
 		SNDERR("failed to truncate SHM position %s: %s",
-				plug->shm_context.name, strerror(errno));
-		shm_unlink(plug->shm_context.name);
+				shm->name, strerror(errno));
+		shm_unlink(shm->name);
 		return -errno;
 	}
 
 	/* map it locally for context readback */
-	plug->shm_context.addr = mmap(NULL, plug->shm_context.size,
+	shm->addr = mmap(NULL, shm->size,
 				  PROT_READ | PROT_WRITE,
-				  MAP_SHARED, plug->shm_context.fd, 0);
-	if (plug->shm_context.addr == NULL) {
+				  MAP_SHARED, shm->fd, 0);
+	if (shm->addr == NULL) {
 		SNDERR("failed to mmap SHM position%s: %s",
-				plug->shm_context.name, strerror(errno));
-		shm_unlink(plug->shm_context.name);
+				shm->name, strerror(errno));
+		shm_unlink(shm->name);
 		return -errno;
 	}
 
-	/* context args */
-	plug_add_pipe_arg(plug, "C", plug->shm_context.name);
+	return 0;
+}
+
+int plug_open_mmap_regions(struct plug_shm_context *shm)
+{
+	void *addr;
+	int err;
+
+	/* open SHM to be used for low latency position */
+	shm->fd = shm_open(shm->name,
+				    O_RDWR,
+				    S_IRWXU | S_IRWXG);
+	if (shm->fd < 0) {
+		SNDERR("failed to open SHM position %s: %s\n",
+			shm->name, strerror(errno));
+		return -errno;
+	}
+
+	/* map it locally for context readback */
+	shm->addr = mmap(NULL, shm->size,
+				  PROT_READ | PROT_WRITE,
+				  MAP_SHARED, shm->fd, 0);
+	if (shm->addr == NULL) {
+		SNDERR("failed to mmap SHM position%s: %s\n",
+			shm->name, strerror(errno));
+		return -errno;
+	}
 
 	return 0;
 }

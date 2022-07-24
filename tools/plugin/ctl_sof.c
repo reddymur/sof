@@ -35,8 +35,9 @@
 
 typedef struct snd_sof_ctl {
 	struct plug_ctl ctls;
-	snd_ctl_ext_t ext_ctl;
+	snd_ctl_ext_t ext;
 	struct plug_mq ipc;
+	struct plug_shm_context shm_ctx;
 } snd_sof_ctl_t;
 
 static int sof_update_volume(snd_sof_ctl_t *ctl)
@@ -296,8 +297,6 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 	int err;
 	snd_sof_ctl_t *ctl;
 
-	printf("%s %d name %s\n", __func__, __LINE__, name);
-
 	/* create context */
 	plug = calloc(1, sizeof(*plug));
 	if (!plug)
@@ -307,14 +306,19 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 	if (!ctl)
 		return -ENOMEM;
 	plug->module_prv = ctl;
-	printf("%s %d name %s\n", __func__, __LINE__, name);
+
 	/* parse the ALSA configuration file for sof plugin */
 	err = plug_parse_conf(plug, name, root, conf);
 	if (err < 0) {
 		SNDERR("failed to parse config: %s", strerror(err));
 		goto error;
 	}
-	printf("%s %d name %s\n", __func__, __LINE__, name);
+
+	/* create message queue for IPC */
+	err = plug_ipc_init_queue(&ctl->ipc, plug->tplg.tplg_file, "ctl");
+	if (err < 0)
+		goto error;
+
 	/* open message queue for IPC */
 	err = plug_open_ipc_queue(&ctl->ipc);
 	if (err < 0) {
@@ -322,23 +326,19 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 		SNDERR("The PCM needs to be open for mixers to connect to pipeline");
 		goto error;
 	}
-	printf("%s %d name %s\n", __func__, __LINE__, name);
+
 	/* register interest in signals from child */
 	err = plug_init_signals(plug);
 	if (err < 0)
 		goto error;
-	printf("%s %d name %s\n", __func__, __LINE__, name);
+
 	/* create a SHM mapping for low latency stream position */
-	err = plug_create_mmap_regions(plug);
+	err = plug_open_mmap_regions(&ctl->shm_ctx);
 	if (err < 0)
 		goto error;
-	printf("%s %d name %s\n", __func__, __LINE__, name);
 
 
-	/* everything is good */
-	return 0;
 
-#if 0
 	ctl->ext.version = SND_CTL_EXT_VERSION;
 	ctl->ext.card_idx = 0;
 	strncpy(ctl->ext.id, "sof", sizeof(ctl->ext.id) - 1);
@@ -359,7 +359,7 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 		goto error;
 
 	*handlep = ctl->ext.handle;
-#endif
+
 	return 0;
 
 error:

@@ -49,8 +49,6 @@ typedef struct snd_sof_plug {
 	char *newargv[16];
 	char *newenviron[16];
 
-	struct plug_shm_context shm_context;
-
 	/* conf data */
 	char *device;
 
@@ -92,7 +90,10 @@ int plug_parent_complete_init(snd_sof_plug_t *pcm, snd_pcm_t **pcmp,
 
 void plug_child_complete_init(snd_sof_plug_t *pcm, int capture);
 
-int plug_create_mmap_regions(snd_sof_plug_t *pcm);
+int plug_create_mmap_regions(struct plug_shm_context *shm);
+int plug_open_mmap_regions(struct plug_shm_context *shm);
+
+int plug_ipc_init_shm(struct plug_shm_context *shm, const char *tplg, const char *type);
 
 int plug_create_ipc_queue(struct plug_mq *ipc);
 
@@ -100,7 +101,10 @@ int plug_open_ipc_queue(struct plug_mq *ipc);
 
 int plug_ipc_init_queue(struct plug_mq *ipc, const char *tplg, const char *type);
 
-int plug_create_locks(snd_sof_plug_t *pcm);
+int plug_ipc_create_lock(struct plug_lock *lock);
+
+int plug_ipc_init_lock(struct plug_lock *lock, const char *tplg, const char *type);
+int plug_ipc_open_lock(struct plug_lock *lock);
 
 void plug_add_pipe_arg(snd_sof_plug_t *pcm, const char *option, const char *arg);
 

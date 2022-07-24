@@ -17,7 +17,22 @@ set(parser_install_dir "${PROJECT_BINARY_DIR}/sof_parser/install")
 
 add_executable(sof-pipe
 	sof-pipe.c
+	plugin.c
 )
+
+sof_append_relative_path_definitions(sof-pipe)
+target_include_directories(sof-pipe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+target_compile_options(sof-pipe PRIVATE -DPIC -g -O3 -Wl,-EL -Wmissing-prototypes
+  -Wimplicit-fallthrough -DCONFIG_LIBRARY -imacros${config_h})
+  
+ target_include_directories(sof-pipe PRIVATE ${sof_install_directory}/include)
+target_include_directories(sof-pipe PRIVATE ${parser_install_dir}/include)
+  
+target_link_libraries(sof-pipe PRIVATE sof_library)
+target_link_libraries(sof-pipe PRIVATE sof_parser_lib)
+target_link_libraries(sof-pipe PRIVATE pthread)
+target_link_libraries(sof-pipe PRIVATE  -lasound -ldl -lm -lasound)
 
 # PCM module
 add_library(asound_module_pcm_sof MODULE

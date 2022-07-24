@@ -29,14 +29,13 @@
 #include <limits.h>
 #include <getopt.h>
 
+#include "plugin.h"
 #include "common.h"
 
 struct sof_pipe {
 	const char *alsa_name;
-	const char *ipc_msg_queue;
+	char topology_name[NAME_SIZE];
 	int io_pipe_fd;
-	const char *mmap_context;
-	const char *io_lock_name;
 	int realtime;
 	int use_P_core;
 	int use_E_core;
@@ -49,315 +48,18 @@ struct sof_pipe {
 	/* SHM for stream context sync */
 	struct plug_shm_context shm_context;
 
-	char *ready_lock_name;
-	char *done_lock_name;
-	sem_t *ready_lock;
-	sem_t *done_lock;
+	/* PCM flow control */
+	struct plug_lock ready;
+	struct plug_lock done;
+
+	struct plug_mq pcm;
+	struct plug_mq ctl;
 
 	FILE *log;
 
 	pthread_t ipc_thread;
 };
 
-#if 0
-/*
- * Register component driver
- * Only needed once per component type
- */
-void register_comp(int comp_type, struct sof_ipc_comp_ext *comp_ext)
-{
-	int index;
-	char message[DEBUG_MSG_LEN + MAX_LIB_NAME_LEN];
-
-	/* register file comp driver (no shared library needed) */
-	if (comp_type == SOF_COMP_HOST || comp_type == SOF_COMP_DAI) {
-		if (!lib_table[0].register_drv) {
-			sys_comp_file_init();
-			lib_table[0].register_drv = 1;
-			debug_print("registered file comp driver\n");
-		}
-		return;
-	}
-
-	/* get index of comp in shared library table */
-	index = get_index_by_type(comp_type, lib_table);
-	if (comp_type == SOF_COMP_NONE && comp_ext) {
-		index = get_index_by_uuid(comp_ext, lib_table);
-		if (index < 0)
-			return;
-	}
-
-	/* register comp driver if not already registered */
-	if (!lib_table[index].register_drv) {
-		sprintf(message, "registered comp driver for %s\n",
-			lib_table[index].comp_name);
-		debug_print(message);
-
-		/* open shared library object */
-		sprintf(message, "opening shared lib %s\n",
-			lib_table[index].library_name);
-		debug_print(message);
-
-		lib_table[index].handle = dlopen(lib_table[index].library_name,
-						 RTLD_LAZY);
-		if (!lib_table[index].handle) {
-			fprintf(stderr, "error: %s\n", dlerror());
-			exit(EXIT_FAILURE);
-		}
-
-		/* comp init is executed on lib load */
-		lib_table[index].register_drv = 1;
-	}
-
-}
-
-
-/* load fileread component */
-static int tplg_load_fileread(struct tplg_context *ctx,
-			      struct sof_ipc_comp_file *fileread)
-{
-	struct snd_soc_tplg_vendor_array *array = NULL;
-	size_t total_array_size = 0;
-	size_t read_size;
-	FILE *file = ctx->file;
-	int size = ctx->widget->priv.size;
-	int comp_id = ctx->comp_id;
-	int ret;
-
-	/* allocate memory for vendor tuple array */
-	array = (struct snd_soc_tplg_vendor_array *)malloc(size);
-	if (!array) {
-		fprintf(stderr, "error: mem alloc\n");
-		return -errno;
-	}
-
-	/* read vendor tokens */
-	while (total_array_size < size) {
-		read_size = sizeof(struct snd_soc_tplg_vendor_array);
-		ret = fread(array, read_size, 1, file);
-		if (ret != 1) {
-			fprintf(stderr,
-				"error: fread failed during load_fileread\n");
-			free(array);
-			return -EINVAL;
-		}
-
-		if (!is_valid_priv_size(total_array_size, size, array)) {
-			fprintf(stderr, "error: filewrite array size mismatch for widget size %d\n",
-				size);
-			free(array);
-			return -EINVAL;
-		}
-
-		tplg_read_array(array, file);
-
-		/* parse comp tokens */
-		ret = sof_parse_tokens(&fileread->config, comp_tokens,
-				       ARRAY_SIZE(comp_tokens), array,
-				       array->size);
-		if (ret != 0) {
-			fprintf(stderr, "error: parse comp tokens %d\n",
-				size);
-			free(array);
-			return -EINVAL;
-		}
-
-		total_array_size += array->size;
-	}
-
-	free(array);
-
-	/* configure fileread */
-	fileread->mode = FILE_READ;
-	fileread->comp.id = comp_id;
-
-	/* use fileread comp as scheduling comp */
-	fileread->comp.core = ctx->core_id;
-	fileread->comp.hdr.size = sizeof(struct sof_ipc_comp_file);
-	fileread->comp.type = SOF_COMP_FILEREAD;
-	fileread->comp.pipeline_id = ctx->pipeline_id;
-	fileread->config.hdr.size = sizeof(struct sof_ipc_comp_config);
-	return 0;
-}
-
-/* load filewrite component */
-static int tplg_load_filewrite(struct tplg_context *ctx,
-			       struct sof_ipc_comp_file *filewrite)
-{
-	struct snd_soc_tplg_vendor_array *array = NULL;
-	size_t read_size;
-	size_t total_array_size = 0;
-	FILE *file = ctx->file;
-	int size = ctx->widget->priv.size;
-	int comp_id = ctx->comp_id;
-	int ret;
-
-	/* allocate memory for vendor tuple array */
-	array = (struct snd_soc_tplg_vendor_array *)malloc(size);
-	if (!array) {
-		fprintf(stderr, "error: mem alloc\n");
-		return -errno;
-	}
-
-	/* read vendor tokens */
-	while (total_array_size < size) {
-		read_size = sizeof(struct snd_soc_tplg_vendor_array);
-		ret = fread(array, read_size, 1, file);
-		if (ret != 1) {
-			free(array);
-			return -EINVAL;
-		}
-
-		if (!is_valid_priv_size(total_array_size, size, array)) {
-			fprintf(stderr, "error: filewrite array size mismatch\n");
-			free(array);
-			return -EINVAL;
-		}
-
-		tplg_read_array(array, file);
-
-		ret = sof_parse_tokens(&filewrite->config, comp_tokens,
-				       ARRAY_SIZE(comp_tokens), array,
-				       array->size);
-		if (ret != 0) {
-			fprintf(stderr, "error: parse filewrite tokens %d\n",
-				size);
-			free(array);
-			return -EINVAL;
-		}
-		total_array_size += array->size;
-	}
-
-	free(array);
-
-	/* configure filewrite */
-	filewrite->comp.core = ctx->core_id;
-	filewrite->comp.id = comp_id;
-	filewrite->mode = FILE_WRITE;
-	filewrite->comp.hdr.size = sizeof(struct sof_ipc_comp_file);
-	filewrite->comp.type = SOF_COMP_FILEWRITE;
-	filewrite->comp.pipeline_id = ctx->pipeline_id;
-	filewrite->config.hdr.size = sizeof(struct sof_ipc_comp_config);
-	return 0;
-}
-
-/* load fileread component */
-static int load_fileread(struct tplg_context *ctx, int dir)
-{
-	struct sof *sof = ctx->sof;
-	struct testbench_prm *tp = ctx->tp;
-	FILE *file = ctx->file;
-	struct sof_ipc_comp_file fileread = {0};
-	int ret;
-
-	fileread.config.frame_fmt = find_format(tp->bits_in);
-
-	ret = tplg_load_fileread(ctx, &fileread);
-	if (ret < 0)
-		return ret;
-
-	if (tplg_create_controls(ctx->widget->num_kcontrols, file) < 0) {
-		fprintf(stderr, "error: loading controls\n");
-		return -EINVAL;
-	}
-
-	/* configure fileread */
-	fileread.fn = strdup(tp->input_file[tp->input_file_index]);
-	if (tp->input_file_index == 0)
-		tp->fr_id = ctx->comp_id;
-
-	/* use fileread comp as scheduling comp */
-	ctx->sched_id = ctx->comp_id;
-	tp->input_file_index++;
-
-	/* Set format from testbench command line*/
-	fileread.rate = ctx->fs_in;
-	fileread.channels = ctx->channels_in;
-	fileread.frame_fmt = ctx->frame_fmt;
-	fileread.direction = dir;
-
-	/* Set type depending on direction */
-	fileread.comp.type = (dir == SOF_IPC_STREAM_PLAYBACK) ?
-		SOF_COMP_HOST : SOF_COMP_DAI;
-
-	/* create fileread component */
-	register_comp(fileread.comp.type, NULL);
-	if (ipc_comp_new(sof->ipc, ipc_to_comp_new(&fileread)) < 0) {
-		fprintf(stderr, "error: file read\n");
-		return -EINVAL;
-	}
-
-	free(fileread.fn);
-	return 0;
-}
-
-/* load filewrite component */
-static int load_filewrite(struct tplg_context *ctx, int dir)
-{
-	struct sof *sof = ctx->sof;
-	struct testbench_prm *tp = ctx->tp;
-	FILE *file = ctx->file;
-	struct sof_ipc_comp_file filewrite = {0};
-	int ret;
-
-	ret = tplg_load_filewrite(ctx, &filewrite);
-	if (ret < 0)
-		return ret;
-
-	if (tplg_create_controls(ctx->widget->num_kcontrols, file) < 0) {
-		fprintf(stderr, "error: loading controls\n");
-		return -EINVAL;
-	}
-
-	/* configure filewrite (multiple output files are supported.) */
-	if (!tp->output_file[tp->output_file_index]) {
-		fprintf(stderr, "error: output[%d] file name is null\n",
-			tp->output_file_index);
-		return -EINVAL;
-	}
-	filewrite.fn = strdup(tp->output_file[tp->output_file_index]);
-	if (tp->output_file_index == 0)
-		tp->fw_id = ctx->comp_id;
-	tp->output_file_index++;
-
-	/* Set format from testbench command line*/
-	filewrite.rate = ctx->fs_out;
-	filewrite.channels = ctx->channels_out;
-	filewrite.frame_fmt = ctx->frame_fmt;
-	filewrite.direction = dir;
-
-	/* Set type depending on direction */
-	filewrite.comp.type = (dir == SOF_IPC_STREAM_PLAYBACK) ?
-		SOF_COMP_DAI : SOF_COMP_HOST;
-
-	/* create filewrite component */
-	register_comp(filewrite.comp.type, NULL);
-	if (ipc_comp_new(sof->ipc, ipc_to_comp_new(&filewrite)) < 0) {
-		fprintf(stderr, "error: new file write\n");
-		return -EINVAL;
-	}
-
-	free(filewrite.fn);
-	return 0;
-}
-
-int load_aif_in_out(struct tplg_context *ctx, int dir)
-{
-	if (dir == SOF_IPC_STREAM_PLAYBACK)
-		return load_fileread(ctx, dir);
-	else
-		return load_filewrite(ctx, dir);
-}
-
-int load_dai_in_out(struct tplg_context *ctx, int dir)
-{
-	if (dir == SOF_IPC_STREAM_PLAYBACK)
-		return load_filewrite(ctx, dir);
-	else
-		return load_fileread(ctx, dir);
-}
-
-#endif
 
 /* read the CPU ID register data on x86 */
 static inline void x86_cpuid(unsigned int *eax, unsigned int *ebx,
@@ -603,29 +305,7 @@ static int pipe_set_rt(struct sof_pipe *sp)
 	return 0;
 }
 
-/*
- * Pipe is used to transfer audio data in R/W mode (not mmap)
- */
-static int pipe_init_sem(struct sof_pipe *sp)
-{
-	sp->ready_lock = sem_open(sp->ready_lock_name,
-				O_RDWR);
-	if (sp->ready_lock == SEM_FAILED) {
-		fprintf(sp->log, "failed to open semaphore %s: %s\n",
-			sp->ready_lock_name, strerror(errno));
-		return -errno;
-	}
 
-	sp->done_lock = sem_open(sp->done_lock_name,
-				O_RDWR);
-	if (sp->done_lock == SEM_FAILED) {
-		fprintf(sp->log, "failed to open semaphore %s: %s\n",
-			sp->done_lock_name, strerror(errno));
-		return -errno;
-	}
-
-	return 0;
-}
 
 static int pipe_open_ipc_queue(struct sof_pipe *sp)
 {
@@ -641,41 +321,6 @@ static int pipe_open_ipc_queue(struct sof_pipe *sp)
 
 	return 0;
 }
-
-static int pipe_open_mmap_regions(struct sof_pipe *sp)
-{
-	void *addr;
-	int err;
-
-	// TODO: set name/size from conf
-	sp->shm_context.name = "sofpipe_context";
-	sp->shm_context.size = 0x100;
-
-	/* open SHM to be used for low latency position */
-	sp->shm_context.fd = shm_open(sp->shm_context.name,
-				    O_RDWR,
-				    S_IRWXU | S_IRWXG);
-	if (sp->shm_context.fd < 0) {
-		fprintf(sp->log, "failed to open SHM position %s: %s\n",
-			sp->shm_context.name, strerror(errno));
-		return -errno;
-	}
-
-	/* map it locally for context readback */
-	sp->shm_context.addr = mmap(NULL, sp->shm_context.size,
-				  PROT_READ | PROT_WRITE,
-				  MAP_SHARED, sp->shm_context.fd, 0);
-	if (sp->shm_context.addr == NULL) {
-		fprintf(sp->log, "failed to mmap SHM position%s: %s\n",
-			sp->shm_context.name, strerror(errno));
-		return -errno;
-	}
-
-	return 0;
-}
-
-#define MS_TO_US(_msus)	(_msus * 1000)
-#define MS_TO_NS(_msns) (MS_TO_US(_msns * 1000))
 
 /*
  * The main processing loop
@@ -696,7 +341,7 @@ static int pipe_process_playback(struct sof_pipe *sp)
 	ts.tv_nsec = MS_TO_NS(10);
 	do {
 		/* wait for data */
-		sem_wait(sp->ready_lock);
+		sem_wait(sp->ready.sem);
 		//fprintf(sp->log, "   recd %ld frames\n", ctx->frames);
 
 		/* now do all the processing and tell plugin we are done */
@@ -704,7 +349,7 @@ static int pipe_process_playback(struct sof_pipe *sp)
 		ctx->position += ctx->frames;
 		if (ctx->position > ctx->buffer_frames)
 			ctx->position -= ctx->buffer_frames;
-		sem_post(sp->done_lock);
+		sem_post(sp->done.sem);
 	} while (1);
 
 
@@ -727,11 +372,11 @@ static int pipe_process_capture(struct sof_pipe *sp)
 		ctx->frames = 6000;
 
 		/* tell plugin data is ready */
-		sem_post(sp->ready_lock);
+		sem_post(sp->ready.sem);
 		//fprintf(sp->log, "   sent %ld frames\n", ctx->frames);
 
 		/* wait for plugin to consume */
-		sem_wait(sp->done_lock);
+		sem_wait(sp->done.sem);
 
 	} while (1);
 
@@ -745,11 +390,7 @@ static int pipe_process_capture(struct sof_pipe *sp)
  * -p Force run on P core
  * -e Force run on E core
  * -c capture
- * -i IPC message queue name
- * -r ready semaphore
- * -d done semaphore
- * -M mmap audio data file
- * -C mmap audio context file
+ * -t topology name.
  * -L log file (otherwise stdout)
  * -h help
  */
@@ -769,7 +410,7 @@ int main(int argc, char *argv[], char *env[])
 	sp.log = stdout;
 
 	/* parse all args */
-	while ((option = getopt(argc, argv, "hD:Rpeci:r:d:M:C:")) != -1) {
+	while ((option = getopt(argc, argv, "hD:Rpect:")) != -1) {
 
 		switch (option) {
 		/* Alsa device  */
@@ -790,20 +431,8 @@ int main(int argc, char *argv[], char *env[])
 		case 'c':
 			sp.capture = 1;
 			break;
-		case 'i':
-			sp.ipc_msg_queue = strdup(optarg);
-			break;
-		case 'r':
-			sp.ready_lock_name = strdup(optarg);
-			break;
-		case 'd':
-			sp.done_lock_name = strdup(optarg);
-			break;
-		case 'M':
-			sp.mmap_context = strdup(optarg);
-			break;
-		case 'C':
-			//sp.io_lock_name = strdup(optarg);
+		case 't':
+			snprintf(sp.topology_name, NAME_SIZE, "%s", optarg);
 			break;
 
 		/* print usage */
@@ -820,11 +449,11 @@ int main(int argc, char *argv[], char *env[])
 	sp.ipc_msg_queue = "/sofipc";
 
 	/* validate cmd line params */
-	if (!sp.ready_lock_name) {
+	if (strlen(sp.ready.name) == 0) {
 		fprintf(stderr, "error: no data READY lock specified using -r\n");
 		exit(EXIT_FAILURE);
 	}
-	if (!sp.done_lock_name) {
+	if (strlen(sp.done.name) == 0) {
 		fprintf(stderr, "error: no data DONE lock specified using -d\n");
 		exit(EXIT_FAILURE);
 	}
@@ -865,17 +494,25 @@ int main(int argc, char *argv[], char *env[])
 	}
 
 	/* mmap context */
-	ret = pipe_open_mmap_regions(&sp);
+	ret = plug_create_mmap_regions(&sp.shm_context);
 	if (ret < 0)
 		goto out;
 
 	/* open IPC message queue */
-	ret = pipe_open_ipc_queue(&sp);
+	ret = plug_create_ipc_queue(&sp.pcm);
+	if (ret < 0)
+		goto out;
+
+	/* open IPC message queue */
+	ret = plug_create_ipc_queue(&sp.ctl);
 	if (ret < 0)
 		goto out;
 
 	/* open semaphore */
-	ret = pipe_init_sem(&sp);
+	ret = plug_ipc_create_lock(&sp.ready);
+	if (ret < 0)
+		goto out;
+	ret = plug_ipc_create_lock(&sp.done);
 	if (ret < 0)
 		goto out;
 

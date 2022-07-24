@@ -23,6 +23,8 @@
 
 #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
 
+#define SHM_SIZE	4096
+
 enum plugin_state {
 	SOF_PLUGIN_STATE_INIT	= 0,
 	SOF_PLUGIN_STATE_READY	= 1,
@@ -39,7 +41,7 @@ struct plug_shm_context {
 	/* SHM for stream context sync */
 	int fd;
 	int size;
-	char *name;
+	char name[NAME_SIZE];
 	void *addr;
 };
 
@@ -48,6 +50,11 @@ struct plug_mq {
 	mqd_t mq;
 	struct mq_attr attr;
 	char queue_name[NAME_SIZE];
+};
+
+struct plug_lock {
+	char name[NAME_SIZE];
+	sem_t *sem;
 };
 
 #endif
