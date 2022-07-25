@@ -237,7 +237,8 @@ int plug_ipc_init_queue(struct plug_mq *ipc, const char *tplg, const char *type)
 	if (!name)
 		return -EINVAL;
 
-	snprintf(ipc->queue_name, NAME_SIZE, "/mq-%s-%s", type, name);
+	//snprintf(ipc->queue_name, NAME_SIZE, "/mq-%s-%s", type, name);
+	snprintf(ipc->queue_name, NAME_SIZE, "/sofipc");
 	return 0;
 }
 
@@ -249,6 +250,7 @@ int plug_create_ipc_queue(struct plug_mq *ipc)
 {
 	int err;
 
+	memset(&ipc->attr, 0, sizeof(ipc->attr));
 	ipc->attr.mq_msgsize = IPC3_MAX_MSG_SIZE;
 	ipc->attr.mq_maxmsg = 4;
 
@@ -272,9 +274,9 @@ int plug_open_ipc_queue(struct plug_mq *ipc)
 	int err;
 
 	/* now open new queue for Tx and Rx */
-	err = mq_open(ipc->queue_name,  O_RDWR | O_EXCL);
-	if (err < 0) {
-		SNDERR("failed to create IPC queue %s: %s\n",
+	ipc->mq = mq_open(ipc->queue_name,  O_RDWR);
+	if (ipc->mq < 0) {
+		SNDERR("failed to open IPC queue %s: %s\n",
 			ipc->queue_name, strerror(errno));
 		return -errno;
 	}
@@ -289,6 +291,7 @@ int plug_ipc_init_lock(struct plug_lock *lock, const char *tplg, const char *typ
 	if (!name)
 		return -EINVAL;
 
+	/* semaphores need the leading / */
 	snprintf(lock->name, NAME_SIZE, "/lock-%s-%s", name, type);
 	return 0;
 }

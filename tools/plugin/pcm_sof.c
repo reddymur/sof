@@ -45,13 +45,6 @@ typedef struct snd_sof_pcm {
 	struct plug_lock ready;
 	struct plug_lock done;
 
-
-	/* SHM for audio IO */
-	int io_fd;
-	int io_size;
-	char *io_name;
-	void *io_addr;
-
 	struct plug_shm_context shm_ctx;
 
 	struct plug_mq ipc;
@@ -201,8 +194,9 @@ static snd_pcm_sframes_t plug_pcm_write(snd_pcm_ioplug_t *io,
 	bytes = size * pcm->frame_size;
 
 	/* write audio data to pipe */
-	memcpy(pcm->io_addr, buf, bytes);
+	memcpy(pcm->shm_ctx.addr, buf, bytes);
 	ctx->frames = size;
+
 	sem_post(pcm->ready.sem);
 
 	/* wait for sof-pipe reader to consume data or timeout */
@@ -217,8 +211,8 @@ static snd_pcm_sframes_t plug_pcm_write(snd_pcm_ioplug_t *io,
 	err = sem_timedwait(pcm->done.sem, &pcm->wait_timeout);
 	if (err == -1) {
 		SNDERR("write: fatal timeout: %s", strerror(errno));
-		kill(plug->cpid, SIGTERM);
-		return -EPIPE;
+		//kill(plug->cpid, SIGTERM);
+		//return -EPIPE;
 	}
 
 	pcm->copies++;
@@ -265,7 +259,7 @@ static snd_pcm_sframes_t plug_pcm_read(snd_pcm_ioplug_t *io,
 	}
 
 	/* write audio data to pipe */
-	memcpy(buf, pcm->io_addr, bytes);
+	memcpy(buf, pcm->shm_ctx.addr, bytes);
 
 	ctx->position += ctx->frames;
 	if (ctx->position > ctx->buffer_frames)
@@ -277,7 +271,6 @@ static snd_pcm_sframes_t plug_pcm_read(snd_pcm_ioplug_t *io,
 	pcm->copies++;
 	return ctx->frames;
 }
-
 
 static int plug_pcm_prepare(snd_pcm_ioplug_t * io)
 {
@@ -410,7 +403,7 @@ static int plug_pcm_sw_params(snd_pcm_ioplug_t *io, snd_pcm_sw_params_t *params)
 	}
 
 	ctx->buffer_frames = io->buffer_size;
-	printf("size %ld\n", ctx->buffer_frames);
+	printf("-------------size %ld\n", ctx->buffer_frames);
 	return 0;
 }
 
@@ -578,60 +571,55 @@ static int plug_create(snd_sof_plug_t *plug, snd_pcm_t **pcmp, const char *name,
 	return 0;
 }
 
-static int plug_pcm_create_mmap_regions(snd_sof_plug_t *plug)
-{
-	snd_sof_pcm_t *pcm = plug->module_prv;
-	int err;
-
-	// TODO: set name/size from conf
-	pcm->io_name = "sofpipe_data";
-	pcm->io_size = 0x10000;
-
-	/* make sure we have a clean sham */
-	shm_unlink(pcm->io_name);
-
-	/* open SHM to be used for low latency position */
-	pcm->io_fd = shm_open(pcm->io_name,
-				    O_RDWR | O_CREAT,
-				    S_IRWXU | S_IRWXG);
-	if (pcm->io_fd < 0) {
-		SNDERR("failed to create SHM io %s: %s",
-			pcm->io_name, strerror(errno));
-		return -errno;
-	}
-
-	/* set SHM size */
-	err = ftruncate(pcm->io_fd, pcm->io_size);
-	if (err < 0) {
-		SNDERR("failed to truncate SHM position %s: %s",
-				pcm->shm_ctx.name, strerror(errno));
-		shm_unlink(pcm->io_name);
-		return -errno;
-	}
-
-	/* map it locally for context readback */
-	pcm->io_addr = mmap(NULL, pcm->io_size,
-				  PROT_READ | PROT_WRITE,
-				  MAP_SHARED, pcm->io_fd, 0);
-	if (pcm->io_addr == NULL) {
-		SNDERR("failed to mmap SHM position%s: %s",
-			pcm->io_name, strerror(errno));
-		shm_unlink(pcm->io_name);
-		return -errno;
-	}
-
-	/* IO args */
-	plug_add_pipe_arg(plug, "M", pcm->io_name);
-
-	return 0;
-}
-
 /* complete any init for the parent */
 int plug_parent_complete_init(snd_sof_plug_t *plug, snd_pcm_t **pcmp,
 		  	  	     const char *name, snd_pcm_stream_t stream, int mode)
 {
 	snd_sof_pcm_t *pcm = plug->module_prv;
+	struct timespec delay;
 	int err;
+	int tries = 10;
+
+//	delay.tv_sec = 1;
+//		delay.tv_nsec = 000;	/* 20 micro seconds */
+//		nanosleep(&delay, NULL);
+
+	delay.tv_sec = 0;
+	delay.tv_nsec = 20 * 1000 * 1000;	/* 20 milliseconds */
+
+	while (tries--) {
+		err = plug_open_ipc_queue(&pcm->ipc);
+		if (err == 0)
+			goto next;
+printf("!!!try %d\n", tries);
+		/* give pipe more time to start */
+		nanosleep(&delay, NULL);
+	}
+	SNDERR("timeout on opening pipe IPC queue: %s", pcm->ipc.queue_name);
+	return -ETIMEDOUT;
+
+next:
+
+	while (tries--) {
+		err = plug_ipc_open_lock(&pcm->done);
+		if (err == 0)
+			goto next2;
+printf("!!!try %d\n", tries);
+		/* give pipe more time to start */
+		nanosleep(&delay, NULL);
+	}
+	SNDERR("timeout on opening pipe done lock: %s", pcm->done.name);
+	return -ETIMEDOUT;
+
+next2:
+	/* create pipe for audio data - TODO support mmap() */
+	err = plug_ipc_open_lock(&pcm->ready);
+	if (err < 0)
+		return err;
+
+	err = plug_open_mmap_regions(&pcm->shm_ctx);
+	if (err < 0)
+		return err;
 
 	/* load the topology TDOD: add pipeline ID*/
 	err = plug_parse_topology(&plug->tplg, &pcm->ipc, NULL, plug->tplg.pipeline_id);
@@ -682,52 +670,31 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 		goto pipe_error;
 	}
 
+	/* register interest in signals from child */
+	err = plug_init_signals(plug);
+	if (err < 0)
+		goto signal_error;
+
 	/* context args */
 	plug_add_pipe_arg(plug, "t", plug->tplg.tplg_file);
 
 	/* create message queue for IPC */
-	err = plug_ipc_init_lock(&pcm->ipc, plug->tplg.tplg_file, "ready");
+	err = plug_ipc_init_lock(&pcm->ready, plug->tplg.tplg_file, "ready");
 	if (err < 0)
 		goto ipc_error;
-	err = plug_ipc_init_lock(&pcm->ipc, plug->tplg.tplg_file, "done");
+	err = plug_ipc_init_lock(&pcm->done, plug->tplg.tplg_file, "done");
 	if (err < 0)
 		goto ipc_error;
-
-	/* create pipe for audio data - TODO support mmap() */
-	err = plug_ipc_open_lock(&pcm->ready);
-	if (err < 0)
-		goto pipe_error;
-	err = plug_ipc_open_lock(&pcm->done);
-	if (err < 0)
-		goto pipe_error;
 
 	/* create message queue for IPC */
 	err = plug_ipc_init_queue(&pcm->ipc, plug->tplg.tplg_file, "pcm");
 	if (err < 0)
 		goto ipc_error;
 
-	err = plug_open_ipc_queue(&pcm->ipc);
-	if (err < 0)
-		goto ipc_error;
-
-	/* register interest in signals from child */
-	err = plug_init_signals(plug);
-	if (err < 0)
-		goto signal_error;
-
 	/* create a SHM mapping for low latency stream position */
 	err = plug_ipc_init_shm(&pcm->shm_ctx, plug->tplg.tplg_file, "pcm");
 	if (err < 0)
 		goto ipc_error;
-
-	err = plug_open_mmap_regions(&pcm->shm_ctx);
-	if (err < 0)
-		goto signal_error;
-
-	/* create a SHM mapping for low latency stream position */
-	//err = plug_pcm_create_mmap_regions(plug);
-	//if (err < 0)
-	//	goto signal_error;
 
 	/* the pipeline runs in its own process context */
 	plug->cpid = fork();
@@ -758,11 +725,10 @@ SND_PCM_PLUGIN_DEFINE_FUNC(sof)
 	/* error cleanup */
 fork_error:
 	munmap(pcm->shm_ctx.addr, pcm->shm_ctx.size);
-	shm_unlink(pcm->shm_ctx.name);
-	munmap(pcm->io_addr, pcm->io_size);
-	shm_unlink(pcm->io_name);
+	//shm_unlink(pcm->shm_ctx.name);
+
 signal_error:
-	mq_unlink(pcm->ipc.queue_name);
+	//mq_unlink(pcm->ipc.queue_name);
 ipc_error:
 
 pipe_error:

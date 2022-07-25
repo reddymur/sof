@@ -40,8 +40,6 @@ struct sof_pipe {
 	int use_E_core;
 	int capture;
 
-	mqd_t ipc;
-
 	struct sigaction action;
 
 	/* SHM for stream context sync */
@@ -221,18 +219,18 @@ static void *pipe_ipc_thread(void *arg)
 	if (err < 0)
 		fprintf(stderr, "error: cant set IPC thread to low priority");
 
-	/* open the IPC message queue */
+	/* create the IPC message queue */
 	err = plug_create_ipc_queue(&sp->pcm_ipc);
 	if (err < 0) {
-		fprintf(sp->log, "error: can't open PCM IPC message queue : %s\n",
-				strerror(errno));
+		fprintf(sp->log, "error: can't create PCM IPC message queue : %s\n",
+			strerror(errno));
 		return NULL;
 	}
 
 	/* main IPC handling loop */
 	printf("waiting for messages\n");
 	while (1) {
-		ipc_size = mq_receive(sp->ipc, mailbox, 384, NULL);
+		ipc_size = mq_receive(sp->pcm_ipc.mq, mailbox, IPC3_MAX_MSG_SIZE, NULL);
 		if (err < 0) {
 			fprintf(sp->log, "error: can't read IPC message queue %s : %s\n",
 				sp->pcm_ipc.queue_name, strerror(errno));
@@ -243,7 +241,7 @@ static void *pipe_ipc_thread(void *arg)
 		printf("got IPC %ld bytes from PCM: %s\n", ipc_size, mailbox);
 
 		/* now return message completion status */
-		err = mq_send(sp->ipc, mailbox, 384, 0);
+		err = mq_send(sp->pcm_ipc.mq, mailbox, IPC3_MAX_MSG_SIZE, 0);
 		if (err < 0) {
 			fprintf(sp->log, "error: can't send IPC message queue %s : %s\n",
 				sp->pcm_ipc.queue_name, strerror(errno));
@@ -252,7 +250,7 @@ static void *pipe_ipc_thread(void *arg)
 	}
 
 	fprintf(sp->log, "IPC thread finished !!\n");
-	mq_close(sp->ipc);
+	mq_close(sp->pcm_ipc.mq);
 	return NULL;
 }
 
@@ -314,18 +312,13 @@ static int pipe_process_playback(struct sof_pipe *sp)
 	struct timespec ts;
 	ssize_t bytes;
 
-	ts.tv_sec = 0;
-	ts.tv_nsec = MS_TO_NS(5);
-
-	printf("pipe waiting\n");
-	while (ctx->frames == 0) {nanosleep(&ts, NULL);};
 	printf("pipe starting\n");
 
 	ts.tv_nsec = MS_TO_NS(10);
 	do {
 		/* wait for data */
 		sem_wait(sp->ready.sem);
-		//fprintf(sp->log, "   recd %ld frames\n", ctx->frames);
+		printf("   recd %ld frames\n", ctx->frames);
 
 		/* now do all the processing and tell plugin we are done */
 		nanosleep(&ts, NULL);
@@ -429,12 +422,8 @@ int main(int argc, char *argv[], char *env[])
 	}
 
 	/* validate cmd line params */
-	if (strlen(sp.ready.name) == 0) {
-		fprintf(stderr, "error: no data READY lock specified using -r\n");
-		exit(EXIT_FAILURE);
-	}
-	if (strlen(sp.done.name) == 0) {
-		fprintf(stderr, "error: no data DONE lock specified using -d\n");
+	if (strlen(sp.topology_name) == 0) {
+		fprintf(stderr, "error: no IPC topology name specified\n");
 		exit(EXIT_FAILURE);
 	}
 

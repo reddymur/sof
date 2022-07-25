@@ -23,7 +23,7 @@
 
 #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
 
-#define SHM_SIZE	4096
+#define SHM_SIZE	(4096 * 16)	/* get from topology */
 
 enum plugin_state {
 	SOF_PLUGIN_STATE_INIT	= 0,
